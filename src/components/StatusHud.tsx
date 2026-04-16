@@ -1,0 +1,85 @@
+import type { GestureType, InteractionMode, TrackingState } from '../types'
+import './StatusHud.css'
+
+function toTrackingLabel(trackingState: TrackingState) {
+  switch (trackingState) {
+    case 'idle':
+      return '대기'
+    case 'requesting_permission':
+      return '권한 요청'
+    case 'ready':
+      return '준비 완료'
+    case 'denied':
+      return '권한 차단'
+    case 'unsupported':
+      return '지원 안 됨'
+    case 'error':
+      return '오류'
+    default:
+      return '알 수 없음'
+  }
+}
+
+function toGestureLabel(gesture: GestureType) {
+  switch (gesture) {
+    case 'open_palm':
+      return '펼친 손'
+    case 'fist':
+      return '주먹'
+    case 'victory':
+      return '브이'
+    case 'heart':
+      return '하트'
+    case 'none':
+    default:
+      return '없음'
+  }
+}
+
+interface StatusHudProps {
+  modelReady: boolean
+  trackingState: TrackingState
+  isCameraActive: boolean
+  handDetected: boolean
+  gesture: GestureType
+  rawDetectionCount: number
+  videoResolution: { width: number; height: number }
+  lastInferenceDurationMs: number
+  sendCount: number
+  resultCount: number
+  debugState: string
+  mode: InteractionMode
+  fingerCount: number
+}
+
+export function StatusHud(props: StatusHudProps) {
+  return (
+    <section className="status-hud" aria-label="실시간 상태">
+      <div className="status-hud__row">
+        <div className="status-hud__item">
+          <span className="status-hud__label">Camera</span>
+          <strong>{props.isCameraActive ? 'On' : 'Off'}</strong>
+        </div>
+        <div className="status-hud__item">
+          <span className="status-hud__label">Hand</span>
+          <strong>{props.handDetected ? 'Detected' : 'Searching'}</strong>
+        </div>
+        <div className="status-hud__item">
+          <span className="status-hud__label">Gesture</span>
+          <strong>{toGestureLabel(props.gesture)}</strong>
+        </div>
+        <div className="status-hud__item">
+          <span className="status-hud__label">Points</span>
+          <strong>{props.rawDetectionCount}</strong>
+        </div>
+        <div className="status-hud__item">
+          <span className="status-hud__label">Count</span>
+          <strong>{props.fingerCount}</strong>
+        </div>
+      </div>
+      <p className="status-hud__meta">
+        {props.mode === 'count' ? 'Count mode' : 'Flow mode'} · {props.modelReady ? 'Model loaded' : 'Model loading'} · {toTrackingLabel(props.trackingState)} · {props.videoResolution.width}×{props.videoResolution.height}
+      </p>
+    </section>
+  )
+}
