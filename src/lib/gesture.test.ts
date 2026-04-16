@@ -84,13 +84,23 @@ function buildHandLandmarks(config: {
   return landmarks
 }
 
+function mirrorLandmarks(landmarks: LandmarkPoint[]): LandmarkPoint[] {
+  return landmarks.map((point) => ({
+    x: 1 - point.x,
+    y: point.y,
+    z: point.z,
+  }))
+}
+
 function buildFrame(
   config: Parameters<typeof buildHandLandmarks>[0],
   timestamp = 1000,
   handedness: HandSignalFrame['handedness'] = 'Right',
 ): HandSignalFrame {
+  const landmarks = buildHandLandmarks(config)
+
   return {
-    landmarks: buildHandLandmarks(config),
+    landmarks: handedness === 'Left' ? mirrorLandmarks(landmarks) : landmarks,
     handedness,
     confidence: 0.9,
     timestamp,
@@ -246,6 +256,40 @@ describe('countExtendedFingers', () => {
     ).toBe(2)
   })
 
+  it('counts a standard one gesture as one even if the thumb sits slightly outward', () => {
+    const frame = buildFrame({
+      thumb: 'closed',
+      index: 'open',
+      middle: 'closed',
+      ring: 'closed',
+      pinky: 'closed',
+    })
+
+    frame.landmarks[1] = { x: 0.45, y: 0.74, z: 0 }
+    frame.landmarks[2] = { x: 0.4, y: 0.7, z: 0 }
+    frame.landmarks[3] = { x: 0.34, y: 0.65, z: 0 }
+    frame.landmarks[4] = { x: 0.31, y: 0.62, z: 0 }
+
+    expect(countExtendedFingers(frame)).toBe(1)
+  })
+
+  it('counts a standard victory gesture as two even with a side-resting thumb', () => {
+    const frame = buildFrame({
+      thumb: 'closed',
+      index: 'open',
+      middle: 'open',
+      ring: 'closed',
+      pinky: 'closed',
+    })
+
+    frame.landmarks[1] = { x: 0.45, y: 0.74, z: 0 }
+    frame.landmarks[2] = { x: 0.39, y: 0.7, z: 0 }
+    frame.landmarks[3] = { x: 0.33, y: 0.66, z: 0 }
+    frame.landmarks[4] = { x: 0.28, y: 0.64, z: 0 }
+
+    expect(countExtendedFingers(frame)).toBe(2)
+  })
+
   it('does not overcount the thumb when only three middle fingers are extended', () => {
     expect(
       countExtendedFingers(
@@ -258,6 +302,23 @@ describe('countExtendedFingers', () => {
         }),
       ),
     ).toBe(3)
+  })
+
+  it('does not overcount a folded thumb that is laterally displaced across the palm', () => {
+    const frame = buildFrame({
+      thumb: 'closed',
+      index: 'open',
+      middle: 'open',
+      ring: 'open',
+      pinky: 'closed',
+    })
+
+    frame.landmarks[1] = { x: 0.46, y: 0.72, z: 0 }
+    frame.landmarks[2] = { x: 0.43, y: 0.69, z: 0 }
+    frame.landmarks[3] = { x: 0.49, y: 0.66, z: 0 }
+    frame.landmarks[4] = { x: 0.62, y: 0.66, z: 0 }
+
+    expect(countExtendedFingers(frame)).toBe(3)
   })
 })
 

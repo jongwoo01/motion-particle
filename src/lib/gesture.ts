@@ -83,6 +83,13 @@ type FingerStates = {
   pinky: FingerState
 }
 
+type ThumbMetrics = {
+  score: number
+  outwardScore: number
+  palmDistanceScore: number
+  reachScore: number
+}
+
 function getPalmMetrics(landmarks: LandmarkPoint[]) {
   const wrist = landmarks[WRIST]
   const indexMcp = landmarks[INDEX_MCP]
@@ -128,20 +135,19 @@ function getFingerExtendedScore(
   return clamp(straightness * 0.45 + reachScore * 0.3 + liftScore * 0.25, 0, 1)
 }
 
-function getThumbExtendedScore(frame: Pick<HandSignalFrame, 'landmarks' | 'handedness'>) {
+function getThumbMetrics(frame: Pick<HandSignalFrame, 'landmarks' | 'handedness'>): ThumbMetrics {
   const { landmarks } = frame
   const { palmCenter, palmWidth, lateralAxis } = getPalmMetrics(landmarks)
   const thumbTip = landmarks[THUMB_TIP]
   const thumbIp = landmarks[THUMB_IP]
   const thumbMcp = landmarks[THUMB_MCP]
   const thumbCmc = landmarks[THUMB_CMC]
-  const indexMcp = landmarks[INDEX_MCP]
 
   const mcpAngle = angleAt(thumbCmc, thumbMcp, thumbIp)
   const ipAngle = angleAt(thumbMcp, thumbIp, thumbTip)
   const straightScore =
-    normalizeScore(mcpAngle, 1.15, 2.65) * 0.45 +
-    normalizeScore(ipAngle, 1.55, 3.0) * 0.55
+    normalizeScore(mcpAngle, 1.15, 2.65) * 0.4 +
+    normalizeScore(ipAngle, 1.55, 3.0) * 0.6
 
   const palmDistanceGain = distance(thumbTip, palmCenter) - distance(thumbMcp, palmCenter)
   const palmDistanceScore = normalizeScore(
@@ -150,30 +156,50 @@ function getThumbExtendedScore(frame: Pick<HandSignalFrame, 'landmarks' | 'hande
     palmWidth * 0.48,
   )
 
-  const indexSeparationGain = distance(thumbTip, indexMcp) - distance(thumbIp, indexMcp)
-  const indexSeparationScore = normalizeScore(
-    indexSeparationGain,
-    palmWidth * 0.03,
-    palmWidth * 0.28,
+  // Signed lateral motion is the key discriminator for the thumb:
+  // an extended thumb moves outward from the palm along the finger row,
+  // while a folded thumb may still look laterally displaced if we only use abs().
+  const outwardGain = dot(subtract(thumbTip, thumbMcp), lateralAxis)
+  const outwardScore = normalizeScore(
+    outwardGain,
+    palmWidth * 0.04,
+    palmWidth * 0.34,
   )
 
-  const lateralProjection = Math.abs(dot(subtract(thumbTip, palmCenter), lateralAxis))
-  const lateralScore = normalizeScore(lateralProjection, palmWidth * 0.14, palmWidth * 0.42)
-
-  return clamp(
-    straightScore * 0.34 +
-      palmDistanceScore * 0.28 +
-      indexSeparationScore * 0.22 +
-      lateralScore * 0.16,
-    0,
-    1,
+  const palmSideProjection = dot(subtract(thumbTip, palmCenter), lateralAxis)
+  const palmSideScore = normalizeScore(
+    palmSideProjection,
+    palmWidth * 0.14,
+    palmWidth * 0.42,
   )
+
+  const reachGain = distance(thumbTip, thumbMcp) - distance(thumbIp, thumbMcp)
+  const reachScore = normalizeScore(
+    reachGain,
+    palmWidth * 0.08,
+    palmWidth * 0.34,
+  )
+
+  return {
+    score: clamp(
+      straightScore * 0.22 +
+        palmDistanceScore * 0.16 +
+        outwardScore * 0.2 +
+        palmSideScore * 0.1 +
+        reachScore * 0.32,
+      0,
+      1,
+    ),
+    outwardScore,
+    palmDistanceScore,
+    reachScore,
+  }
 }
 
 function getFingerStates(frame: Pick<HandSignalFrame, 'landmarks' | 'handedness'>): FingerStates {
   const { landmarks } = frame
 
-  const thumbScore = getThumbExtendedScore(frame)
+  const thumbMetrics = getThumbMetrics(frame)
   const indexScore = getFingerExtendedScore(landmarks, INDEX_MCP, INDEX_PIP, INDEX_DIP, INDEX_TIP)
   const middleScore = getFingerExtendedScore(
     landmarks,
@@ -193,8 +219,8 @@ function getFingerStates(frame: Pick<HandSignalFrame, 'landmarks' | 'handedness'
 
   return {
     thumb: {
-      score: thumbScore,
-      extended: thumbScore > 0.5,
+      score: thumbMetrics.score,
+      extended: thumbMetrics.score > 0.52,
     },
     index: {
       score: indexScore,
@@ -307,7 +333,19 @@ export function countExtendedFingers(frame: Pick<HandSignalFrame, 'landmarks' | 
   }
 
   const fingerStates = getFingerStates(frame)
-  const extendedCount = Object.values(fingerStates).filter((finger) => finger.extended).length
+  const thumbMetrics = getThumbMetrics(frame)
+  const thumbCounted =
+    thumbMetrics.score > 0.72 &&
+    thumbMetrics.reachScore > 0.58 &&
+    thumbMetrics.outwardScore > 0.45 &&
+    thumbMetrics.palmDistanceScore > 0.18
+
+  const extendedCount =
+    Number(thumbCounted) +
+    Number(fingerStates.index.extended) +
+    Number(fingerStates.middle.extended) +
+    Number(fingerStates.ring.extended) +
+    Number(fingerStates.pinky.extended)
   return clamp(extendedCount, 0, 5)
 }
 
