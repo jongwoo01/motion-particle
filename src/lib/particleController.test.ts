@@ -28,6 +28,10 @@ describe('particle presets', () => {
         velocity: 0.6,
         openness: 0.7,
         spread: 0.8,
+        pinch: 0.15,
+        rotation: 0.52,
+        horizontal: 0.28,
+        vertical: -0.18,
       },
     })
 
@@ -35,6 +39,8 @@ describe('particle presets', () => {
     expect(controller.anchor.x).toBeCloseTo(0.32)
     expect(controller.count).toBeGreaterThan(20000)
     expect(controller.noiseStrength).toBeGreaterThan(0.3)
+    expect(controller.swirl).toBeGreaterThan(0.4)
+    expect(controller.energy).toBeGreaterThan(0.4)
   })
 
   it('creates a tighter renderer state in count mode', () => {
@@ -49,6 +55,10 @@ describe('particle presets', () => {
         velocity: 0.4,
         openness: 0.9,
         spread: 0.8,
+        pinch: 0.12,
+        rotation: 0.24,
+        horizontal: 0.16,
+        vertical: 0.09,
       },
     })
 
@@ -56,5 +66,7 @@ describe('particle presets', () => {
     expect(controller.countValue).toBe(7)
     expect(controller.attraction).toBeGreaterThan(1)
     expect(controller.noiseStrength).toBeLessThan(0.2)
+    expect(controller.swirl).toBe(0)
+    expect(controller.eventPulse).toBe(0)
   })
 })

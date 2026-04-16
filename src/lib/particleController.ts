@@ -122,6 +122,62 @@ export function resolveParticleControllerState(input: {
   const spreadBoost = input.handDetected
     ? clamp(input.metrics.spread * 0.52, 0, 0.58)
     : 0
+  const drift = input.handDetected
+    ? {
+        x: clamp(input.metrics.horizontal * 0.9, -1, 1),
+        y: clamp(input.metrics.vertical * 0.9, -1, 1),
+      }
+    : { x: 0, y: 0 }
+  const energy = input.handDetected
+    ? clamp(
+        input.metrics.velocity * 0.42 +
+          input.metrics.openness * 0.18 +
+          input.metrics.spread * 0.12 +
+          input.metrics.pinch * 0.16 +
+          Math.abs(input.metrics.rotation) * 0.12,
+        0,
+        1,
+      )
+    : 0
+  const swirl = input.handDetected
+    ? clamp(
+        Math.abs(input.metrics.rotation) * 0.6 +
+          Math.abs(drift.x) * 0.14 +
+          (input.gesture === 'victory' ? 0.24 : 0) +
+          (input.gesture === 'heart' ? 0.12 : 0),
+        0,
+        1,
+      )
+    : 0
+  const bloom = input.handDetected
+    ? clamp(
+        input.metrics.openness * 0.4 +
+          input.metrics.spread * 0.34 +
+          (input.gesture === 'open_palm' ? 0.28 : 0),
+        0,
+        1,
+      )
+    : 0
+  const compression = input.handDetected
+    ? clamp(
+        (1 - input.metrics.openness) * 0.26 +
+          input.metrics.pinch * 0.46 +
+          (input.gesture === 'fist' ? 0.36 : 0),
+        0,
+        1,
+      )
+    : 0
+  const eventPulse = input.handDetected
+    ? clamp(
+        input.metrics.velocity * 0.48 +
+          Math.abs(drift.x) * 0.12 +
+          Math.abs(drift.y) * 0.12 +
+          input.metrics.pinch * 0.18 +
+          Math.abs(input.metrics.rotation) * 0.1,
+        0,
+        1,
+      )
+    : 0
 
   return {
     ...basePreset,
@@ -136,5 +192,12 @@ export function resolveParticleControllerState(input: {
     anchor: input.handDetected ? input.metrics.anchor : { x: 0, y: 0 },
     mode: resolvedMode,
     countValue: resolvedCountValue,
+    energy,
+    swirl: resolvedMode === 'count' ? 0 : swirl,
+    bloom: resolvedMode === 'count' ? 0 : bloom,
+    compression: resolvedMode === 'count' ? 0 : compression,
+    drift: resolvedMode === 'count' ? { x: 0, y: 0 } : drift,
+    pinch: resolvedMode === 'count' ? 0 : input.metrics.pinch,
+    eventPulse: resolvedMode === 'count' ? 0 : eventPulse,
   }
 }

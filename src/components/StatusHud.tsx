@@ -36,6 +36,13 @@ function toGestureLabel(gesture: GestureType) {
   }
 }
 
+function toFieldLabel(energy: number, swirl: number) {
+  if (energy > 0.72) return '폭발'
+  if (swirl > 0.56) return '와류'
+  if (energy > 0.42) return '활성'
+  return '부유'
+}
+
 interface StatusHudProps {
   modelReady: boolean
   trackingState: TrackingState
@@ -50,9 +57,13 @@ interface StatusHudProps {
   debugState: string
   mode: InteractionMode
   fingerCount: number
+  energy: number
+  swirl: number
 }
 
 export function StatusHud(props: StatusHudProps) {
+  const intensity = Math.round(props.energy * 100)
+
   return (
     <section className="status-hud" aria-label="실시간 상태">
       <div className="status-hud__row">
@@ -73,12 +84,12 @@ export function StatusHud(props: StatusHudProps) {
           <strong>{props.rawDetectionCount}</strong>
         </div>
         <div className="status-hud__item">
-          <span className="status-hud__label">Count</span>
-          <strong>{props.fingerCount}</strong>
+          <span className="status-hud__label">{props.mode === 'count' ? 'Count' : 'Field'}</span>
+          <strong>{props.mode === 'count' ? props.fingerCount : toFieldLabel(props.energy, props.swirl)}</strong>
         </div>
       </div>
       <p className="status-hud__meta">
-        {props.mode === 'count' ? 'Count mode' : 'Flow mode'} · {props.modelReady ? 'Model loaded' : 'Model loading'} · {toTrackingLabel(props.trackingState)} · {props.videoResolution.width}×{props.videoResolution.height}
+        {props.mode === 'count' ? 'Count mode' : `Flow mode · intensity ${intensity}`} · {props.modelReady ? 'Model loaded' : 'Model loading'} · {toTrackingLabel(props.trackingState)} · {props.videoResolution.width}×{props.videoResolution.height}
       </p>
     </section>
   )

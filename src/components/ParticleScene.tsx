@@ -21,6 +21,13 @@ type DynamicsState = ParticleControllerState
 
 const MAX_PARTICLES = 32000
 const MIN_PARTICLES = 6000
+const TRAIL_NODES = 6
+
+type TrailNode = {
+  x: number
+  y: number
+  strength: number
+}
 
 const particleVertexShader = `
   attribute float aScale;
@@ -287,6 +294,13 @@ function ParticleField({ controllerState }: ParticleSceneProps) {
   })
   const countModeMixRef = useRef(0)
   const velocitiesRef = useRef(new Float32Array(MAX_PARTICLES * 3))
+  const gestureEventRef = useRef(0)
+  const shockwaveRef = useRef(0)
+  const previousGestureRef = useRef(controllerState.gesture)
+  const previousEventPulseRef = useRef(0)
+  const trailRef = useRef<TrailNode[]>(
+    Array.from({ length: TRAIL_NODES }, () => ({ x: 0, y: 0, strength: 0 })),
+  )
   const viewport = useThree((state) => state.viewport)
   const size = useThree((state) => state.size)
 
@@ -327,8 +341,16 @@ function ParticleField({ controllerState }: ParticleSceneProps) {
     current.hueShift = MathUtils.lerp(current.hueShift, controllerState.hueShift, 0.05)
     current.noiseStrength = MathUtils.lerp(current.noiseStrength, controllerState.noiseStrength, 0.05)
     current.brightness = MathUtils.lerp(current.brightness, controllerState.brightness, 0.05)
+    current.energy = MathUtils.lerp(current.energy, controllerState.energy, 0.08)
+    current.swirl = MathUtils.lerp(current.swirl, controllerState.swirl, 0.08)
+    current.bloom = MathUtils.lerp(current.bloom, controllerState.bloom, 0.08)
+    current.compression = MathUtils.lerp(current.compression, controllerState.compression, 0.08)
+    current.pinch = MathUtils.lerp(current.pinch, controllerState.pinch, 0.08)
+    current.eventPulse = MathUtils.lerp(current.eventPulse, controllerState.eventPulse, 0.12)
     current.anchor.x = MathUtils.lerp(current.anchor.x, controllerState.anchor.x, 0.08)
     current.anchor.y = MathUtils.lerp(current.anchor.y, controllerState.anchor.y, 0.08)
+    current.drift.x = MathUtils.lerp(current.drift.x, controllerState.drift.x, 0.08)
+    current.drift.y = MathUtils.lerp(current.drift.y, controllerState.drift.y, 0.08)
     current.gesture = controllerState.gesture
     current.handDetected = controllerState.handDetected
 
@@ -347,6 +369,27 @@ function ParticleField({ controllerState }: ParticleSceneProps) {
     )
     const countModeMix = countModeMixRef.current
     const countField = numberFields[controllerState.countValue] ?? numberFields[0]
+    const flowModeMix = 1 - countModeMix
+
+    const gestureChanged =
+      controllerState.mode === 'flow' &&
+      current.handDetected &&
+      controllerState.gesture !== previousGestureRef.current &&
+      controllerState.gesture !== 'none'
+    const pulseSpike =
+      controllerState.mode === 'flow' &&
+      controllerState.eventPulse > 0.62 &&
+      previousEventPulseRef.current <= 0.62
+
+    if (gestureChanged || pulseSpike) {
+      gestureEventRef.current = 1
+      shockwaveRef.current = 1
+    }
+
+    previousGestureRef.current = controllerState.gesture
+    previousEventPulseRef.current = controllerState.eventPulse
+    gestureEventRef.current = MathUtils.damp(gestureEventRef.current, 0, 2.8, delta)
+    shockwaveRef.current = Math.max(0, shockwaveRef.current - delta * 1.3)
 
     mixes.openPalm = MathUtils.damp(mixes.openPalm, targetOpen, 3.9, delta)
     mixes.fist = MathUtils.damp(mixes.fist, targetFist, 4.2, delta)
@@ -382,6 +425,18 @@ function ParticleField({ controllerState }: ParticleSceneProps) {
       mixes.fist * 0.48 +
       mixes.victory * 0.54 +
       mixes.heart * 0.64
+    colorSettings.hueBase += current.swirl * 0.09 + current.drift.x * 0.02 - current.compression * 0.03
+    colorSettings.hueRange += current.energy * 0.08 + current.swirl * 0.05
+    colorSettings.saturation = MathUtils.clamp(
+      colorSettings.saturation + current.energy * 0.1 + current.pinch * 0.06,
+      0.36,
+      0.96,
+    )
+    colorSettings.lightness = MathUtils.clamp(
+      colorSettings.lightness + current.energy * 0.07 + gestureEventRef.current * 0.06,
+      0.24,
+      0.82,
+    )
     colorSettings.hueBase = MathUtils.lerp(colorSettings.hueBase, 0.08, countModeMix * 0.72)
     colorSettings.hueRange = MathUtils.lerp(colorSettings.hueRange, 0.03, countModeMix)
     colorSettings.saturation = MathUtils.lerp(colorSettings.saturation, 0.18, countModeMix)
@@ -407,6 +462,36 @@ function ParticleField({ controllerState }: ParticleSceneProps) {
     )
     const turbulence =
       (current.noiseStrength * 0.0046 + current.velocity * 0.0042) * (1 - countModeMix * 0.78)
+    const flowEnergy = current.energy * flowModeMix
+    const vortexStrength = (0.002 + current.swirl * 0.017 + gestureEventRef.current * 0.01) * flowModeMix
+    const bloomStrength = (current.bloom * 0.022 + mixes.openPalm * 0.012) * flowModeMix
+    const compressionStrength =
+      (current.compression * 0.024 + mixes.fist * 0.012 + current.pinch * 0.01) * flowModeMix
+    const driftStrength = (0.0035 + flowEnergy * 0.006) * flowModeMix
+    const shockRadius = 0.28 + (1 - shockwaveRef.current) * 2.8
+    const shockStrength = shockwaveRef.current * (0.028 + current.eventPulse * 0.016) * flowModeMix
+
+    const trail = trailRef.current
+    trail[0].x = MathUtils.damp(trail[0].x, anchorX, 10, delta)
+    trail[0].y = MathUtils.damp(trail[0].y, anchorY, 10, delta)
+    trail[0].strength = MathUtils.damp(
+      trail[0].strength,
+      current.handDetected && controllerState.mode === 'flow'
+        ? 0.24 + flowEnergy * 0.7 + current.eventPulse * 0.35
+        : 0,
+      5.8,
+      delta,
+    )
+    for (let index = 1; index < trail.length; index += 1) {
+      trail[index].x = MathUtils.damp(trail[index].x, trail[index - 1].x, 7.4 - index * 0.5, delta)
+      trail[index].y = MathUtils.damp(trail[index].y, trail[index - 1].y, 7.4 - index * 0.5, delta)
+      trail[index].strength = MathUtils.damp(
+        trail[index].strength,
+        trail[index - 1].strength * (0.82 - index * 0.06),
+        4.8 - index * 0.28,
+        delta,
+      )
+    }
 
     for (let index = 0; index < drawCount; index += 1) {
       const p = index * 3
@@ -459,12 +544,50 @@ function ParticleField({ controllerState }: ParticleSceneProps) {
       velocities[p + 1] += (resolvedTargetY - positionArray[p + 1]) * springStrength + wobbleY
       velocities[p + 2] += (resolvedTargetZ - positionArray[p + 2]) * springStrength + wobbleZ
 
-      const swirl =
+      const orbitalSpin =
         (neutralMix * 0.004 + mixes.openPalm * 0.009 + mixes.victory * 0.013) *
         current.velocity *
         (1 - countModeMix * 0.82)
-      velocities[p] += -positionArray[p + 2] * swirl
-      velocities[p + 2] += positionArray[p] * swirl
+      velocities[p] += -positionArray[p + 2] * orbitalSpin
+      velocities[p + 2] += positionArray[p] * orbitalSpin
+
+      const deltaX = positionArray[p] - anchorX
+      const deltaY = positionArray[p + 1] - anchorY
+      const radialDistance = Math.max(0.001, Math.hypot(deltaX, deltaY))
+      const radialInfluence = 1 / (1 + radialDistance * radialDistance * (3.6 + current.compression * 6))
+      const radialX = deltaX / radialDistance
+      const radialY = deltaY / radialDistance
+
+      velocities[p] += radialX * bloomStrength * radialInfluence
+      velocities[p + 1] += radialY * bloomStrength * radialInfluence
+      velocities[p] -= radialX * compressionStrength * radialInfluence
+      velocities[p + 1] -= radialY * compressionStrength * radialInfluence
+
+      velocities[p] += -radialY * vortexStrength * radialInfluence
+      velocities[p + 1] += radialX * vortexStrength * radialInfluence
+      velocities[p] += current.drift.x * driftStrength * (0.7 + radialInfluence * 1.2)
+      velocities[p + 1] += current.drift.y * driftStrength * (0.7 + radialInfluence * 1.2)
+      velocities[p + 2] += (current.swirl * 0.003 + current.energy * 0.004) * radialInfluence
+
+      if (shockStrength > 0.0001) {
+        const ringDelta = radialDistance - shockRadius
+        const ring = Math.exp(-(ringDelta * ringDelta) * 11)
+        velocities[p] += radialX * shockStrength * ring
+        velocities[p + 1] += radialY * shockStrength * ring
+      }
+
+      for (let trailIndex = 0; trailIndex < trail.length; trailIndex += 1) {
+        const node = trail[trailIndex]
+        if (node.strength < 0.02) continue
+
+        const trailDx = positionArray[p] - node.x
+        const trailDy = positionArray[p + 1] - node.y
+        const trailDistanceSq = trailDx * trailDx + trailDy * trailDy + 0.01
+        const wake = (node.strength * 0.01 * flowModeMix) / (1 + trailDistanceSq * (10 + trailIndex * 3))
+        velocities[p] += -trailDy * wake * (0.9 + current.swirl * 1.2)
+        velocities[p + 1] += trailDx * wake * (0.9 + current.bloom * 0.8)
+        velocities[p + 2] += wake * (0.3 - trailIndex * 0.04)
+      }
 
       velocities[p] *= damping
       velocities[p + 1] *= damping
@@ -477,14 +600,16 @@ function ParticleField({ controllerState }: ParticleSceneProps) {
       const hue =
         (colorSettings.hueBase +
           current.hueShift +
-          Math.sin(phase + time * 0.18) * 0.012 +
+          Math.sin(phase + time * (0.18 + current.energy * 0.08)) * (0.012 + current.swirl * 0.018) +
+          radialInfluence * current.bloom * 0.04 +
           (index / drawCount) * colorSettings.hueRange) %
         1
 
       const lightness =
         colorSettings.lightness +
         current.brightness * 0.16 +
-        Math.sin(phase + time * 0.9) * 0.03 +
+        Math.sin(phase + time * (0.9 + current.energy * 0.6)) * (0.03 + gestureEventRef.current * 0.02) +
+        shockwaveRef.current * radialInfluence * 0.08 +
         scale * 0.012
 
       const color = hslToColor(
@@ -508,7 +633,11 @@ function ParticleField({ controllerState }: ParticleSceneProps) {
     )
     material.uniforms.uPulse.value = MathUtils.damp(
       material.uniforms.uPulse.value as number,
-      current.velocity + current.brightness * 0.18 + mixes.fist * 0.24,
+      current.velocity +
+        current.brightness * 0.18 +
+        current.energy * 0.28 +
+        gestureEventRef.current * 0.42 +
+        mixes.fist * 0.24,
       4.2,
       delta,
     )

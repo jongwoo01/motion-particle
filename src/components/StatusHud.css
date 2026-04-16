@@ -53,7 +53,36 @@
 }
 
 @media (max-width: 820px) {
+  .status-hud {
+    padding: 12px;
+    background:
+      linear-gradient(180deg, rgba(10, 14, 24, 0.45), rgba(5, 7, 14, 0.25));
+    border: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
   .status-hud__row {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    display: flex;
+    overflow-x: auto;
+    padding-bottom: 6px;
+    gap: 8px;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .status-hud__row::-webkit-scrollbar {
+    display: none;
+  }
+
+  .status-hud__item {
+    flex: 0 0 auto;
+    min-width: 76px;
+    background: rgba(255, 255, 255, 0.02);
+  }
+
+  .status-hud__meta {
+    font-size: 0.6rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 }

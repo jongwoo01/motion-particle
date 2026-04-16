@@ -99,7 +99,7 @@ function App() {
           <p className="title-lockup__body">
             {mode === 'count'
               ? `양손 손가락 수를 합산해 ${tracking.fingerCount} 숫자로 응집합니다.`
-              : '펼친 손은 확산, 주먹은 큐브, 브이는 분기, 하트는 심장 형태를 만듭니다.'}
+              : '천천히 감으면 와류가 생기고, 빠르게 밀면 충격파가 퍼집니다. 손을 펼치면 개화하고, 모으면 응축됩니다.'}
           </p>
         </header>
 
@@ -118,6 +118,8 @@ function App() {
             debugState={tracking.debugState}
             mode={mode}
             fingerCount={tracking.fingerCount}
+            energy={controllerState.energy}
+            swirl={controllerState.swirl}
           />
 
           <div className="info-dock__rail">
@@ -143,10 +145,10 @@ function App() {
                 <span><strong>현재 숫자</strong> {tracking.fingerCount}</span>
               ) : (
                 <>
-                  <span><strong>펼친 손</strong> 확산</span>
-                  <span><strong>주먹</strong> 큐브</span>
-                  <span><strong>브이</strong> 분기</span>
-                  <span><strong>하트</strong> 하트</span>
+                  <span><strong>천천히 회전</strong> 와류</span>
+                  <span><strong>빠르게 밀기</strong> 충격파</span>
+                  <span><strong>펼친 손</strong> 개화</span>
+                  <span><strong>손 모으기</strong> 응축</span>
                 </>
               )}
             </section>

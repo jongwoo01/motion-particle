@@ -346,7 +346,7 @@ describe('smoothFingerCountHistory', () => {
 })
 
 describe('computeMotionMetrics', () => {
-  it('extracts anchor, spread, openness, and velocity', () => {
+  it('extracts anchor, spread, openness, pinch, and motion vectors', () => {
     const previous = buildFrame(
       {
         index: 'open',
@@ -374,6 +374,10 @@ describe('computeMotionMetrics', () => {
     expect(metrics.velocity).toBeGreaterThan(0)
     expect(metrics.openness).toBeGreaterThan(0.4)
     expect(metrics.spread).toBeGreaterThan(0.2)
+    expect(metrics.pinch).toBeGreaterThanOrEqual(0)
+    expect(metrics.rotation).toBeGreaterThanOrEqual(-1)
+    expect(metrics.rotation).toBeLessThanOrEqual(1)
+    expect(metrics.horizontal).toBeGreaterThan(0)
     expect(metrics.anchor.x).toBeGreaterThan(0)
   })
 })

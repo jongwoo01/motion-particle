@@ -430,6 +430,10 @@ export function computeMotionMetrics(
       velocity: 0,
       openness: 0,
       spread: 0,
+      pinch: 0,
+      rotation: 0,
+      horizontal: 0,
+      vertical: 0,
     }
   }
 
@@ -462,6 +466,12 @@ export function computeMotionMetrics(
     0,
     1,
   )
+  const pinch = clamp(
+    1 - (distance(frame.landmarks[THUMB_TIP], frame.landmarks[INDEX_TIP]) - 0.025) / 0.24,
+    0,
+    1,
+  )
+  const lateralAxis = normalize(subtract(frame.landmarks[INDEX_MCP], frame.landmarks[PINKY_MCP]))
 
   if (!previousFrame) {
     return {
@@ -472,6 +482,10 @@ export function computeMotionMetrics(
       velocity: 0,
       openness,
       spread,
+      pinch,
+      rotation: 0,
+      horizontal: 0,
+      vertical: 0,
     }
   }
 
@@ -484,11 +498,21 @@ export function computeMotionMetrics(
   }
 
   const deltaTime = Math.max(frame.timestamp - previousFrame.timestamp, 16)
+  const previousLateralAxis = normalize(
+    subtract(previousFrame.landmarks[INDEX_MCP], previousFrame.landmarks[PINKY_MCP]),
+  )
   const velocity = clamp(
     (Math.hypot(anchor.x - previousAnchor.x, anchor.y - previousAnchor.y) /
       deltaTime) *
       26,
     0,
+    1,
+  )
+  const horizontal = clamp(((anchor.x - previousAnchor.x) / deltaTime) * 58, -1, 1)
+  const vertical = clamp(((previousAnchor.y - anchor.y) / deltaTime) * 58, -1, 1)
+  const rotation = clamp(
+    previousLateralAxis.x * lateralAxis.y - previousLateralAxis.y * lateralAxis.x,
+    -1,
     1,
   )
 
@@ -500,5 +524,9 @@ export function computeMotionMetrics(
     velocity,
     openness,
     spread,
+    pinch,
+    rotation,
+    horizontal,
+    vertical,
   }
 }

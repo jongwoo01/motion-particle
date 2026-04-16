@@ -27,6 +27,10 @@ export interface MotionMetrics {
   velocity: number
   openness: number
   spread: number
+  pinch: number
+  rotation: number
+  horizontal: number
+  vertical: number
 }
 
 export interface ParticlePreset {
@@ -46,6 +50,13 @@ export interface ParticleControllerState extends ParticlePreset {
   anchor: { x: number; y: number }
   mode: InteractionMode
   countValue: number
+  energy: number
+  swirl: number
+  bloom: number
+  compression: number
+  drift: { x: number; y: number }
+  pinch: number
+  eventPulse: number
 }
 
 export interface HandTrackingSnapshot {
