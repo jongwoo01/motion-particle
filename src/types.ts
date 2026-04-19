@@ -54,6 +54,7 @@ export interface MotionMetrics {
   rotation: number
   horizontal: number
   vertical: number
+  depth: number
 }
 
 export interface ParticlePreset {
@@ -71,6 +72,7 @@ export interface ParticleControllerState extends ParticlePreset {
   gesture: GestureType
   handDetected: boolean
   anchor: { x: number; y: number }
+  travel: number
   mode: InteractionMode
   countValue: number
   badgeCount: number

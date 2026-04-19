@@ -491,7 +491,14 @@ describe('computeMotionMetrics', () => {
     )
 
     next.landmarks = next.landmarks.map((point, index) =>
-      index === 0 ? { ...point, x: point.x + 0.04 } : point,
+      index === 0
+        ? { ...point, x: point.x + 0.04, z: point.z - 0.05 }
+        : {
+            ...point,
+            x: 0.5 + (point.x - 0.5) * 1.05,
+            y: 0.58 + (point.y - 0.58) * 1.03,
+            z: point.z - 0.05,
+          },
     )
 
     const metrics = computeMotionMetrics(next, previous)
@@ -502,6 +509,7 @@ describe('computeMotionMetrics', () => {
     expect(metrics.rotation).toBeGreaterThanOrEqual(-1)
     expect(metrics.rotation).toBeLessThanOrEqual(1)
     expect(metrics.horizontal).toBeGreaterThan(0)
+    expect(metrics.depth).toBeGreaterThan(0.1)
     expect(metrics.anchor.x).toBeGreaterThan(0)
   })
 })

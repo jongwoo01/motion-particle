@@ -55,6 +55,7 @@ const INITIAL_SNAPSHOT: HandTrackingSnapshot = {
     rotation: 0,
     horizontal: 0,
     vertical: 0,
+    depth: 0,
   },
   errorMessage: null,
 }

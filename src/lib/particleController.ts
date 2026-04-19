@@ -101,6 +101,7 @@ export function resolveParticleControllerState(input: {
   const lowPowerMode = (input.hardwareConcurrency ?? 4) <= 6
   const resolvedMode = input.mode ?? 'flow'
   const resolvedCountValue = clamp(Math.round(input.countValue ?? 0), 0, 10)
+  const isFistFlow = resolvedMode === 'flow' && input.handDetected && input.gesture === 'fist'
   const basePreset =
     resolvedMode === 'count'
       ? {
@@ -117,23 +118,54 @@ export function resolveParticleControllerState(input: {
 
   const motionBoost = input.handDetected
     ? clamp(
-        input.metrics.velocity * 0.28 +
-          input.metrics.openness * 0.18 +
-          input.metrics.spread * 0.14,
+        input.metrics.velocity * (isFistFlow ? 0.28 : 0.54) +
+          input.metrics.openness * (isFistFlow ? 0.18 : 0.38) +
+          input.metrics.spread * (isFistFlow ? 0.14 : 0.08),
         0,
-        0.42,
+        isFistFlow ? 0.42 : 0.68,
       )
     : 0
 
   const spreadBoost = input.handDetected
-    ? clamp(input.metrics.spread * 0.34 + input.metrics.openness * 0.08, 0, 0.34)
+    ? clamp(
+        input.metrics.spread * (isFistFlow ? 0.34 : 0.5) +
+          input.metrics.openness * (isFistFlow ? 0.08 : 0.06),
+        0,
+        isFistFlow ? 0.34 : 0.56,
+      )
     : 0
+  const resolvedMotionBoost = isFistFlow ? motionBoost * 0.18 : motionBoost
+  const resolvedSpreadBoost = isFistFlow ? Math.min(spreadBoost * 0.1, 0.035) : spreadBoost
   const drift = input.handDetected
     ? {
-        x: clamp(input.metrics.horizontal * 0.74, -1, 1),
-        y: clamp(input.metrics.vertical * 0.74, -1, 1),
+        x: clamp(input.metrics.horizontal * (isFistFlow ? 0.74 : 0.88), -1, 1),
+        y: clamp(input.metrics.vertical * (isFistFlow ? 0.74 : 0.88), -1, 1),
       }
     : { x: 0, y: 0 }
+  const resolvedDrift = isFistFlow
+    ? {
+        x: drift.x * 0.18,
+        y: drift.y * 0.18,
+      }
+    : drift
+  const travelBase = input.handDetected
+    ? clamp(
+        input.metrics.depth *
+          (input.gesture === 'open_palm'
+            ? 0.82 + input.metrics.openness * 0.34 + input.metrics.velocity * 0.18
+            : input.gesture === 'victory'
+              ? 0.18
+              : input.gesture === 'heart'
+                ? 0.08
+                : input.gesture === 'fist'
+                  ? 0.04
+                  : 0.2),
+        -1,
+        1,
+      )
+    : 0
+  const travel =
+    resolvedMode === 'count' ? 0 : isFistFlow ? travelBase * 0.04 : travelBase
   const energy = input.handDetected
     ? clamp(
         input.metrics.velocity * 0.42 +
@@ -145,17 +177,18 @@ export function resolveParticleControllerState(input: {
         1,
       )
     : 0
+  const resolvedEnergy = isFistFlow ? energy * 0.28 : energy
   const swirl = input.handDetected
     ? clamp(
         Math.abs(input.metrics.rotation) * 0.6 +
-          Math.abs(drift.x) * 0.14 +
+          Math.abs(resolvedDrift.x) * 0.14 +
           (input.gesture === 'victory' ? 0.24 : 0) +
           (input.gesture === 'heart' ? 0.12 : 0),
         0,
         1,
       )
     : 0
-  const bloom = input.handDetected
+  const bloomBase = input.handDetected
     ? clamp(
         input.metrics.openness * 0.4 +
           input.metrics.spread * 0.34 +
@@ -164,6 +197,7 @@ export function resolveParticleControllerState(input: {
         1,
       )
     : 0
+  const bloom = isFistFlow ? 0 : bloomBase
   const compression = input.handDetected
     ? clamp(
         (1 - input.metrics.openness) * 0.26 +
@@ -173,17 +207,18 @@ export function resolveParticleControllerState(input: {
         1,
       )
     : 0
-  const eventPulse = input.handDetected
+  const eventPulseBase = input.handDetected
     ? clamp(
         input.metrics.velocity * 0.48 +
-          Math.abs(drift.x) * 0.12 +
-          Math.abs(drift.y) * 0.12 +
+          Math.abs(resolvedDrift.x) * 0.12 +
+          Math.abs(resolvedDrift.y) * 0.12 +
           input.metrics.pinch * 0.18 +
           Math.abs(input.metrics.rotation) * 0.1,
         0,
         1,
       )
     : 0
+  const eventPulse = isFistFlow ? eventPulseBase * 0.14 : eventPulseBase
   const rigidity = !input.handDetected
     ? resolvedMode === 'count'
       ? 0.78
@@ -203,24 +238,36 @@ export function resolveParticleControllerState(input: {
 
   return {
     ...basePreset,
-    count: Math.round(basePreset.count * (1 + motionBoost * (resolvedMode === 'count' ? 0.1 : 0.18))),
-    size: basePreset.size + spreadBoost * (resolvedMode === 'count' ? 0.003 : 0.01),
-    velocity: basePreset.velocity + motionBoost * (resolvedMode === 'count' ? 0.08 : 0.18),
-    spread: basePreset.spread + spreadBoost * (resolvedMode === 'count' ? 0.16 : 0.44),
-    noiseStrength: basePreset.noiseStrength + motionBoost * (resolvedMode === 'count' ? 0.02 : 0.09),
-    brightness: basePreset.brightness + motionBoost * (resolvedMode === 'count' ? 0.05 : 0.12),
+    count: Math.round(
+      basePreset.count * (1 + resolvedMotionBoost * (resolvedMode === 'count' ? 0.1 : isFistFlow ? 0.04 : 0.26)),
+    ),
+    size: basePreset.size + resolvedSpreadBoost * (resolvedMode === 'count' ? 0.003 : isFistFlow ? 0.002 : 0.01),
+    velocity:
+      basePreset.velocity + resolvedMotionBoost * (resolvedMode === 'count' ? 0.08 : isFistFlow ? 0.03 : 0.24),
+    spread:
+      basePreset.spread +
+      resolvedSpreadBoost * (resolvedMode === 'count' ? 0.16 : isFistFlow ? 0.08 : 0.76),
+    noiseStrength:
+      isFistFlow
+        ? Math.min(0.03, basePreset.noiseStrength + resolvedMotionBoost * 0.01)
+        : basePreset.noiseStrength + resolvedMotionBoost * (resolvedMode === 'count' ? 0.02 : 0.14),
+    brightness:
+      isFistFlow
+        ? basePreset.brightness + resolvedMotionBoost * 0.03
+        : basePreset.brightness + resolvedMotionBoost * (resolvedMode === 'count' ? 0.05 : 0.16),
     gesture: input.handDetected ? input.gesture : 'none',
     handDetected: input.handDetected,
     anchor: input.handDetected ? input.metrics.anchor : { x: 0, y: 0 },
+    travel,
     mode: resolvedMode,
     countValue: resolvedCountValue,
     badgeCount: resolvedMode === 'count' ? resolvedCountValue : 0,
     rigidity,
-    energy,
-    swirl: resolvedMode === 'count' ? 0 : swirl,
+    energy: resolvedEnergy,
+    swirl: resolvedMode === 'count' ? 0 : isFistFlow ? Math.min(swirl, 0.02) : swirl,
     bloom: resolvedMode === 'count' ? 0 : bloom,
-    compression: resolvedMode === 'count' ? 0 : compression,
-    drift: resolvedMode === 'count' ? { x: 0, y: 0 } : drift,
+    compression: resolvedMode === 'count' ? 0 : isFistFlow ? Math.max(compression, 0.78) : compression,
+    drift: resolvedMode === 'count' ? { x: 0, y: 0 } : resolvedDrift,
     pinch: resolvedMode === 'count' ? 0 : input.metrics.pinch,
     eventPulse: resolvedMode === 'count' ? 0 : eventPulse,
   }

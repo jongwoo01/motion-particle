@@ -2,7 +2,6 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { Bloom, EffectComposer, Noise, Vignette } from '@react-three/postprocessing'
 import { useEffect, useMemo, useRef } from 'react'
 import {
-  AdditiveBlending,
   BufferAttribute,
   Color,
   DynamicDrawUsage,
@@ -20,11 +19,10 @@ import {
   createNumberTargetFieldSet,
   createTargetFields,
 } from '../lib/particleTargets'
-import type { FlowFocusState, ParticleControllerState } from '../types'
+import type { ParticleControllerState } from '../types'
 
 interface ParticleSceneProps {
   controllerState: ParticleControllerState
-  flowFocus: FlowFocusState | null
 }
 
 type DynamicsState = ParticleControllerState
@@ -39,8 +37,6 @@ const MAX_PARTICLES = 42000
 const MIN_PARTICLES = 9000
 const TRAIL_NODES = 6
 const BADGE_POINT_COUNT = BADGE_PARTICLES_PER_CLUSTER * MAX_BADGES
-const FLOW_FOCUS_AURA_POINT_COUNT = 760
-const FLOW_FOCUS_CORE_POINT_COUNT = 240
 const BADGE_LAYOUT_GAP_X = 0.72
 const BADGE_LAYOUT_GAP_Y = 0.82
 const BADGE_GROUP_GAP = 0.96
@@ -92,84 +88,6 @@ const particleFragmentShader = `
       coreColor * core * 0.74 +
       haloColor * edge * 0.16;
     float alpha = halo * 0.12 + body * 0.78 + core * 0.18;
-
-    if (alpha < 0.01) discard;
-    gl_FragColor = vec4(finalColor, alpha);
-  }
-`
-
-const flowFocusAuraVertexShader = `
-  attribute float aScale;
-  varying vec3 vColor;
-  varying float vScale;
-
-  uniform float uPointSize;
-
-  void main() {
-    vColor = color;
-    vScale = aScale;
-
-    vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-    float depthScale = 1.0 / max(0.45, -mvPosition.z);
-
-    gl_PointSize = uPointSize * aScale * depthScale;
-    gl_Position = projectionMatrix * mvPosition;
-  }
-`
-
-const flowFocusAuraFragmentShader = `
-  varying vec3 vColor;
-  varying float vScale;
-
-  uniform float uOpacity;
-  uniform float uShimmer;
-
-  void main() {
-    vec2 centered = gl_PointCoord - vec2(0.5);
-    float circleDistance = length(centered);
-    float aura = smoothstep(0.82, 0.12, circleDistance);
-    float halo = smoothstep(0.66, 0.18, circleDistance);
-    float veil = smoothstep(0.96, 0.24, circleDistance);
-    float shimmer =
-      0.65 +
-      0.35 * sin((centered.x + centered.y) * 18.0 + vScale * 4.0 + uShimmer * 6.28318);
-    float alpha = (aura * 0.16 + halo * 0.26 + veil * 0.06 * shimmer) * uOpacity;
-    vec3 finalColor = mix(vColor, vec3(1.0), 0.34 + halo * 0.18 + shimmer * 0.08);
-
-    if (alpha < 0.01) discard;
-    gl_FragColor = vec4(finalColor, alpha);
-  }
-`
-
-const flowFocusCoreVertexShader = `
-  attribute float aScale;
-  varying vec3 vColor;
-
-  uniform float uPointSize;
-
-  void main() {
-    vColor = color;
-
-    vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-    float depthScale = 1.0 / max(0.45, -mvPosition.z);
-
-    gl_PointSize = uPointSize * aScale * depthScale;
-    gl_Position = projectionMatrix * mvPosition;
-  }
-`
-
-const flowFocusCoreFragmentShader = `
-  varying vec3 vColor;
-
-  uniform float uOpacity;
-
-  void main() {
-    vec2 centered = gl_PointCoord - vec2(0.5);
-    float circleDistance = length(centered);
-    float halo = smoothstep(0.54, 0.14, circleDistance);
-    float core = smoothstep(0.18, 0.0, circleDistance);
-    float alpha = (halo * 0.42 + core * 0.96) * uOpacity;
-    vec3 finalColor = mix(vColor, vec3(1.0), 0.48 + core * 0.28);
 
     if (alpha < 0.01) discard;
     gl_FragColor = vec4(finalColor, alpha);
@@ -262,35 +180,6 @@ function createBadgeScaleBuffer(count: number) {
   return scales
 }
 
-function createFlowFocusTemplate(
-  count: number,
-  options: {
-    radius: number
-    depth: number
-    scaleMin: number
-    scaleRange: number
-    radiusExponent: number
-  },
-) {
-  const positions = new Float32Array(count * 3)
-  const scales = new Float32Array(count)
-
-  for (let index = 0; index < count; index += 1) {
-    const offset = index * 3
-    const angle = pseudoNoise(index + 2801) * Math.PI * 2
-    const radius =
-      Math.pow(pseudoNoise(index + 2861), options.radiusExponent) * options.radius
-
-    positions[offset] = Math.cos(angle) * radius
-    positions[offset + 1] = Math.sin(angle) * radius
-    positions[offset + 2] = (pseudoNoise(index + 2927) - 0.5) * options.depth
-    scales[index] =
-      options.scaleMin + Math.pow(pseudoNoise(index + 2999), 1.3) * options.scaleRange
-  }
-
-  return { positions, scales }
-}
-
 function createColorState() {
   return {
     hueBase: 0.58,
@@ -300,32 +189,25 @@ function createColorState() {
   }
 }
 
-function ParticleField({ controllerState, flowFocus }: ParticleSceneProps) {
+function rotateFistTarget(x: number, y: number, z: number, spinY: number, tiltX: number) {
+  const cosY = Math.cos(spinY)
+  const sinY = Math.sin(spinY)
+  const rotatedX = x * cosY - z * sinY
+  const rotatedZ = x * sinY + z * cosY
+  const cosX = Math.cos(tiltX)
+  const sinX = Math.sin(tiltX)
+
+  return {
+    x: rotatedX,
+    y: y * cosX - rotatedZ * sinX,
+    z: y * sinX + rotatedZ * cosX,
+  }
+}
+
+function ParticleField({ controllerState }: ParticleSceneProps) {
   const seeds = useMemo(() => createSeedBuffer(MAX_PARTICLES), [])
   const scales = useMemo(() => createScaleBuffer(MAX_PARTICLES), [])
   const badgeScales = useMemo(() => createBadgeScaleBuffer(BADGE_POINT_COUNT), [])
-  const flowFocusAuraTemplate = useMemo(
-    () =>
-      createFlowFocusTemplate(FLOW_FOCUS_AURA_POINT_COUNT, {
-        radius: 0.46,
-        depth: 0.12,
-        scaleMin: 0.62,
-        scaleRange: 1.46,
-        radiusExponent: 1.72,
-      }),
-    [],
-  )
-  const flowFocusCoreTemplate = useMemo(
-    () =>
-      createFlowFocusTemplate(FLOW_FOCUS_CORE_POINT_COUNT, {
-        radius: 0.14,
-        depth: 0.05,
-        scaleMin: 0.92,
-        scaleRange: 1.18,
-        radiusExponent: 1.34,
-      }),
-    [],
-  )
   const targetFields = useMemo(() => createTargetFields(MAX_PARTICLES), [])
   const numberTargets = useMemo(() => createNumberTargetFieldSet(MAX_PARTICLES), [])
   const badgeTemplate = useMemo(() => createBadgeClusterTemplate(), [])
@@ -340,35 +222,12 @@ function ParticleField({ controllerState, flowFocus }: ParticleSceneProps) {
   const colors = useMemo(() => new Float32Array(MAX_PARTICLES * 3), [])
   const badgePositions = useMemo(() => new Float32Array(BADGE_POINT_COUNT * 3), [])
   const badgeColors = useMemo(() => new Float32Array(BADGE_POINT_COUNT * 3), [])
-  const flowFocusAuraPositions = useMemo(
-    () => new Float32Array(FLOW_FOCUS_AURA_POINT_COUNT * 3),
-    [],
-  )
-  const flowFocusAuraColors = useMemo(
-    () => new Float32Array(FLOW_FOCUS_AURA_POINT_COUNT * 3),
-    [],
-  )
-  const flowFocusCorePositions = useMemo(
-    () => new Float32Array(FLOW_FOCUS_CORE_POINT_COUNT * 3),
-    [],
-  )
-  const flowFocusCoreColors = useMemo(
-    () => new Float32Array(FLOW_FOCUS_CORE_POINT_COUNT * 3),
-    [],
-  )
   const mainColor = useMemo(() => new Color(), [])
   const badgeColor = useMemo(() => new Color(), [])
-  const focusAuraColor = useMemo(() => new Color(), [])
-  const focusCoreColor = useMemo(() => new Color(), [])
-  const focusGlowColor = useMemo(() => new Color('#d6f5ff'), [])
   const pointsRef = useRef<Points>(null)
   const materialRef = useRef<ShaderMaterial>(null)
   const badgePointsRef = useRef<Points>(null)
   const badgeMaterialRef = useRef<ShaderMaterial>(null)
-  const flowFocusAuraPointsRef = useRef<Points>(null)
-  const flowFocusAuraMaterialRef = useRef<ShaderMaterial>(null)
-  const flowFocusCorePointsRef = useRef<Points>(null)
-  const flowFocusCoreMaterialRef = useRef<ShaderMaterial>(null)
   const currentStateRef = useRef<DynamicsState>({
     ...controllerState,
     anchor: { ...controllerState.anchor },
@@ -383,14 +242,13 @@ function ParticleField({ controllerState, flowFocus }: ParticleSceneProps) {
   const countModeMixRef = useRef(0)
   const velocitiesRef = useRef(new Float32Array(MAX_PARTICLES * 3))
   const badgeVelocitiesRef = useRef(new Float32Array(BADGE_POINT_COUNT * 3))
-  const flowFocusAuraVelocitiesRef = useRef(new Float32Array(FLOW_FOCUS_AURA_POINT_COUNT * 3))
-  const flowFocusCoreVelocitiesRef = useRef(new Float32Array(FLOW_FOCUS_CORE_POINT_COUNT * 3))
   const gestureEventRef = useRef(0)
   const shockwaveRef = useRef(0)
   const badgeRevealRef = useRef(0)
-  const focusRevealRef = useRef(0)
   const previousGestureRef = useRef(controllerState.gesture)
   const previousEventPulseRef = useRef(0)
+  const previousTravelRef = useRef(controllerState.travel)
+  const travelBurstRef = useRef(0)
   const previousBadgeCountRef = useRef(controllerState.badgeCount)
   const fistChargeRef = useRef(0)
   const trailRef = useRef<TrailNode[]>(
@@ -414,21 +272,6 @@ function ParticleField({ controllerState, flowFocus }: ParticleSceneProps) {
     }),
     [],
   )
-  const flowFocusUniforms = useMemo(
-    () => ({
-      uPointSize: { value: 18 },
-      uOpacity: { value: 0 },
-      uShimmer: { value: 0 },
-    }),
-    [],
-  )
-  const flowFocusCoreUniforms = useMemo(
-    () => ({
-      uPointSize: { value: 14 },
-      uOpacity: { value: 0 },
-    }),
-    [],
-  )
 
   useEffect(() => {
     currentStateRef.current = {
@@ -444,69 +287,49 @@ function ParticleField({ controllerState, flowFocus }: ParticleSceneProps) {
     const material = materialRef.current
     const badgePoints = badgePointsRef.current
     const badgeMaterial = badgeMaterialRef.current
-    const flowFocusAuraPoints = flowFocusAuraPointsRef.current
-    const flowFocusAuraMaterial = flowFocusAuraMaterialRef.current
-    const flowFocusCorePoints = flowFocusCorePointsRef.current
-    const flowFocusCoreMaterial = flowFocusCoreMaterialRef.current
 
-    if (
-      !points ||
-      !material ||
-      !badgePoints ||
-      !badgeMaterial ||
-      !flowFocusAuraPoints ||
-      !flowFocusAuraMaterial ||
-      !flowFocusCorePoints ||
-      !flowFocusCoreMaterial
-    ) {
+    if (!points || !material || !badgePoints || !badgeMaterial) {
       return
     }
 
     const geometry = points.geometry
     const badgeGeometry = badgePoints.geometry
-    const flowFocusAuraGeometry = flowFocusAuraPoints.geometry
-    const flowFocusCoreGeometry = flowFocusCorePoints.geometry
     const positionAttr = geometry.getAttribute('position') as BufferAttribute
     const colorAttr = geometry.getAttribute('color') as BufferAttribute
     const badgePositionAttr = badgeGeometry.getAttribute('position') as BufferAttribute
     const badgeColorAttr = badgeGeometry.getAttribute('color') as BufferAttribute
-    const flowFocusAuraPositionAttr = flowFocusAuraGeometry.getAttribute('position') as BufferAttribute
-    const flowFocusAuraColorAttr = flowFocusAuraGeometry.getAttribute('color') as BufferAttribute
-    const flowFocusCorePositionAttr = flowFocusCoreGeometry.getAttribute('position') as BufferAttribute
-    const flowFocusCoreColorAttr = flowFocusCoreGeometry.getAttribute('color') as BufferAttribute
     const positionArray = positionAttr.array as Float32Array
     const colorArray = colorAttr.array as Float32Array
     const badgePositionArray = badgePositionAttr.array as Float32Array
     const badgeColorArray = badgeColorAttr.array as Float32Array
-    const flowFocusAuraPositionArray = flowFocusAuraPositionAttr.array as Float32Array
-    const flowFocusAuraColorArray = flowFocusAuraColorAttr.array as Float32Array
-    const flowFocusCorePositionArray = flowFocusCorePositionAttr.array as Float32Array
-    const flowFocusCoreColorArray = flowFocusCoreColorAttr.array as Float32Array
     const velocities = velocitiesRef.current
     const badgeVelocities = badgeVelocitiesRef.current
-    const flowFocusAuraVelocities = flowFocusAuraVelocitiesRef.current
-    const flowFocusCoreVelocities = flowFocusCoreVelocitiesRef.current
+    const fistInputActive =
+      controllerState.mode === 'flow' &&
+      controllerState.handDetected &&
+      controllerState.gesture === 'fist'
 
     const current = currentStateRef.current
-    current.count = MathUtils.lerp(current.count, controllerState.count, 0.05)
-    current.size = MathUtils.lerp(current.size, controllerState.size, 0.06)
-    current.velocity = MathUtils.lerp(current.velocity, controllerState.velocity, 0.05)
-    current.spread = MathUtils.lerp(current.spread, controllerState.spread, 0.05)
-    current.attraction = MathUtils.lerp(current.attraction, controllerState.attraction, 0.06)
+    current.count = MathUtils.lerp(current.count, controllerState.count, fistInputActive ? 0.16 : 0.05)
+    current.size = MathUtils.lerp(current.size, controllerState.size, fistInputActive ? 0.16 : 0.06)
+    current.velocity = MathUtils.lerp(current.velocity, controllerState.velocity, fistInputActive ? 0.18 : 0.05)
+    current.spread = MathUtils.lerp(current.spread, controllerState.spread, fistInputActive ? 0.22 : 0.05)
+    current.attraction = MathUtils.lerp(current.attraction, controllerState.attraction, fistInputActive ? 0.22 : 0.06)
     current.hueShift = MathUtils.lerp(current.hueShift, controllerState.hueShift, 0.05)
-    current.noiseStrength = MathUtils.lerp(current.noiseStrength, controllerState.noiseStrength, 0.05)
-    current.brightness = MathUtils.lerp(current.brightness, controllerState.brightness, 0.05)
-    current.rigidity = MathUtils.lerp(current.rigidity, controllerState.rigidity, 0.08)
-    current.energy = MathUtils.lerp(current.energy, controllerState.energy, 0.12)
-    current.swirl = MathUtils.lerp(current.swirl, controllerState.swirl, 0.08)
-    current.bloom = MathUtils.lerp(current.bloom, controllerState.bloom, 0.08)
-    current.compression = MathUtils.lerp(current.compression, controllerState.compression, 0.08)
-    current.pinch = MathUtils.lerp(current.pinch, controllerState.pinch, 0.08)
-    current.eventPulse = MathUtils.lerp(current.eventPulse, controllerState.eventPulse, 0.12)
-    current.anchor.x = MathUtils.lerp(current.anchor.x, controllerState.anchor.x, 0.05)
-    current.anchor.y = MathUtils.lerp(current.anchor.y, controllerState.anchor.y, 0.05)
-    current.drift.x = MathUtils.lerp(current.drift.x, controllerState.drift.x, 0.05)
-    current.drift.y = MathUtils.lerp(current.drift.y, controllerState.drift.y, 0.05)
+    current.noiseStrength = MathUtils.lerp(current.noiseStrength, controllerState.noiseStrength, fistInputActive ? 0.2 : 0.05)
+    current.brightness = MathUtils.lerp(current.brightness, controllerState.brightness, fistInputActive ? 0.16 : 0.05)
+    current.rigidity = MathUtils.lerp(current.rigidity, controllerState.rigidity, fistInputActive ? 0.24 : 0.08)
+    current.energy = MathUtils.lerp(current.energy, controllerState.energy, fistInputActive ? 0.2 : 0.12)
+    current.swirl = MathUtils.lerp(current.swirl, controllerState.swirl, fistInputActive ? 0.22 : 0.08)
+    current.bloom = MathUtils.lerp(current.bloom, controllerState.bloom, fistInputActive ? 0.22 : 0.08)
+    current.compression = MathUtils.lerp(current.compression, controllerState.compression, fistInputActive ? 0.24 : 0.08)
+    current.pinch = MathUtils.lerp(current.pinch, controllerState.pinch, fistInputActive ? 0.16 : 0.08)
+    current.eventPulse = MathUtils.lerp(current.eventPulse, controllerState.eventPulse, fistInputActive ? 0.24 : 0.12)
+    current.travel = MathUtils.lerp(current.travel, controllerState.travel, fistInputActive ? 0.08 : 0.16)
+    current.anchor.x = MathUtils.lerp(current.anchor.x, controllerState.anchor.x, fistInputActive ? 0.12 : 0.05)
+    current.anchor.y = MathUtils.lerp(current.anchor.y, controllerState.anchor.y, fistInputActive ? 0.12 : 0.05)
+    current.drift.x = MathUtils.lerp(current.drift.x, controllerState.drift.x, fistInputActive ? 0.14 : 0.05)
+    current.drift.y = MathUtils.lerp(current.drift.y, controllerState.drift.y, fistInputActive ? 0.14 : 0.05)
     current.gesture = controllerState.gesture
     current.handDetected = controllerState.handDetected
     current.mode = controllerState.mode
@@ -544,18 +367,6 @@ function ParticleField({ controllerState, flowFocus }: ParticleSceneProps) {
       delta,
     )
     const badgeReveal = badgeRevealRef.current
-    const flowFocusActive =
-      controllerState.mode === 'flow' &&
-      flowFocus !== null &&
-      controllerState.handDetected &&
-      flowFocus.confidence > 0.34
-    focusRevealRef.current = MathUtils.damp(
-      focusRevealRef.current,
-      flowFocusActive && flowFocus ? flowFocus.intensity : 0,
-      flowFocusActive ? 8.8 : 5.6,
-      delta,
-    )
-    const flowFocusReveal = focusRevealRef.current
 
     const gestureChanged =
       controllerState.mode === 'flow' &&
@@ -564,6 +375,7 @@ function ParticleField({ controllerState, flowFocus }: ParticleSceneProps) {
       controllerState.gesture !== 'none'
     const pulseSpike =
       controllerState.mode === 'flow' &&
+      !fistInputActive &&
       controllerState.eventPulse > 0.62 &&
       previousEventPulseRef.current <= 0.62
 
@@ -585,11 +397,17 @@ function ParticleField({ controllerState, flowFocus }: ParticleSceneProps) {
 
     previousGestureRef.current = controllerState.gesture
     previousEventPulseRef.current = controllerState.eventPulse
-    gestureEventRef.current = MathUtils.damp(gestureEventRef.current, 0, 2.8, delta)
-    shockwaveRef.current = Math.max(0, shockwaveRef.current - delta * 1.3)
+    gestureEventRef.current = MathUtils.damp(gestureEventRef.current, 0, fistInputActive ? 8.5 : 2.8, delta)
+    shockwaveRef.current = Math.max(0, shockwaveRef.current - delta * (fistInputActive ? 4.8 : 1.3))
+    const travelDelta = controllerState.travel - previousTravelRef.current
+    previousTravelRef.current = controllerState.travel
+    travelBurstRef.current = Math.max(
+      Math.max(0, travelBurstRef.current - delta * 2.6),
+      Math.abs(travelDelta) * 1.85,
+    )
 
     mixes.openPalm = MathUtils.damp(mixes.openPalm, targetOpen, 2.8, delta)
-    mixes.fist = MathUtils.damp(mixes.fist, targetFist, 3.1, delta)
+    mixes.fist = MathUtils.damp(mixes.fist, targetFist, fistInputActive ? 11.5 : 3.1, delta)
     mixes.victory = MathUtils.damp(mixes.victory, targetVictory, 2.9, delta)
     mixes.heart = MathUtils.damp(mixes.heart, targetHeart, 3, delta)
 
@@ -598,6 +416,9 @@ function ParticleField({ controllerState, flowFocus }: ParticleSceneProps) {
       1 - Math.max(mixes.openPalm, mixes.fist, mixes.victory, mixes.heart),
     )
     const fistModeMix = mixes.fist * flowModeMix
+    const fistLock = fistInputActive
+      ? MathUtils.clamp(mixes.fist * 1.15 + current.rigidity * 0.35, 0, 1)
+      : 0
     const countRigidityMix = current.rigidity * countModeMix
     const gestureDominance = Math.max(
       neutralMix,
@@ -664,27 +485,28 @@ function ParticleField({ controllerState, flowFocus }: ParticleSceneProps) {
       0.5,
       0.96,
     )
+    const lockedNeutralMix = neutralMix * (1 - fistLock)
     const colorSettings = createColorState()
     colorSettings.hueBase =
-      neutralMix * 0.58 +
+      lockedNeutralMix * 0.58 +
       mixes.openPalm * 0.53 +
       mixes.fist * 0.08 +
       mixes.victory * 0.76 +
       mixes.heart * 0.96
     colorSettings.hueRange =
-      neutralMix * 0.08 +
+      lockedNeutralMix * 0.08 +
       mixes.openPalm * 0.1 +
       mixes.fist * 0.05 +
       mixes.victory * 0.12 +
       mixes.heart * 0.04
     colorSettings.saturation =
-      neutralMix * 0.68 +
+      lockedNeutralMix * 0.68 +
       mixes.openPalm * 0.8 +
       mixes.fist * 0.86 +
       mixes.victory * 0.8 +
       mixes.heart * 0.72
     colorSettings.lightness =
-      neutralMix * 0.42 +
+      lockedNeutralMix * 0.42 +
       mixes.openPalm * 0.54 +
       mixes.fist * 0.48 +
       mixes.victory * 0.54 +
@@ -728,6 +550,7 @@ function ParticleField({ controllerState, flowFocus }: ParticleSceneProps) {
       x: Math.abs(current.drift.x) < 0.03 ? 0 : current.drift.x,
       y: Math.abs(current.drift.y) < 0.03 ? 0 : current.drift.y,
     }
+    const stableTravel = Math.abs(current.travel) < 0.04 ? 0 : current.travel
     const anchorFollow =
       (neutralMix * 0.52 +
         mixes.openPalm * 0.44 +
@@ -745,56 +568,66 @@ function ParticleField({ controllerState, flowFocus }: ParticleSceneProps) {
       handStrength *
       (1.02 + mixes.openPalm * 0.12) *
       anchorFollow
-    const flowFocusWorldX = flowFocusActive && flowFocus ? flowFocus.x * handStrength * 2.1 : 0
-    const flowFocusWorldY = flowFocusActive && flowFocus ? flowFocus.y * handStrength * 1.8 : 0
-    const flowFocusRadius =
-      flowFocusActive && flowFocus ? flowFocus.radius * (0.88 + flowFocusReveal * 0.34) : 0.3
-    const flowFocusConfidence = flowFocusActive && flowFocus ? flowFocus.confidence : 0
-    const flowFocusShimmer = flowFocusActive && flowFocus ? flowFocus.shimmer : 0
+    const forwardTravel =
+      stableTravel *
+      mixes.openPalm *
+      flowModeMix *
+      handStrength *
+      (0.92 + current.velocity * 0.26 + current.energy * 0.18) *
+      (1 - fistLock)
+    const travelBurst = travelBurstRef.current * mixes.openPalm * flowModeMix * (1 - fistLock)
+    const travelScale = 1 + Math.abs(forwardTravel) * 0.18 + travelBurst * 0.08
     const springStrength =
       0.042 +
       current.attraction * 0.031 +
       mixes.fist * 0.014 +
       countModeMix * 0.024 +
       current.rigidity * 0.018 +
-      gestureStability * 0.012
+      gestureStability * 0.012 +
+      fistLock * 0.08
     const velocityDamping = MathUtils.clamp(
       0.074 +
         current.rigidity * 0.058 +
         countModeMix * 0.038 +
         fistModeMix * 0.042 -
-        current.energy * 0.01,
+        current.energy * 0.01 +
+        fistLock * 0.06,
       0.06,
-      0.22,
+      0.28,
     )
     const turbulence =
       (current.noiseStrength * 0.0038 + current.velocity * 0.0026) *
       (1 - countModeMix * 0.94) *
       (1 - current.rigidity * 0.72) *
-      signatureTurbulence
+      signatureTurbulence *
+      (1 - fistLock * 0.96)
     const flowEnergy = current.energy * flowModeMix
     const vortexStrength =
       (0.002 + current.swirl * 0.017 + gestureEventRef.current * 0.01) *
       flowModeMix *
       signatureVortex *
       (1 - fistModeMix * 0.9) *
-      (1 - current.rigidity * 0.35)
+      (1 - current.rigidity * 0.35) *
+      (1 - fistLock * 0.96)
     const bloomStrength =
       (current.bloom * 0.018 + mixes.openPalm * 0.008) *
       flowModeMix *
       signatureBloom *
-      (1 - fistModeMix * 0.9)
+      (1 - fistModeMix * 0.9) *
+      (1 - fistLock)
     const compressionStrength =
       (current.compression * 0.012 + current.pinch * 0.008) *
       flowModeMix *
       signatureCompression *
-      (1 - fistModeMix * 0.84)
+      (1 - fistModeMix * 0.84) *
+      (0.8 + fistLock * 0.35)
     const driftStrength =
       (0.0022 + flowEnergy * 0.0038) *
       flowModeMix *
       signatureDrift *
       (1 - fistModeMix * 0.88) *
-      stabilityFactor
+      stabilityFactor *
+      (1 - fistLock * 0.95)
     const shockRadius = 0.28 + (1 - shockwaveRef.current) * 2.8
     const shockStrength =
       shockwaveRef.current *
@@ -802,7 +635,8 @@ function ParticleField({ controllerState, flowFocus }: ParticleSceneProps) {
       flowModeMix *
       signatureShock *
       (1 - fistModeMix * 0.92) *
-      stabilityFactor
+      stabilityFactor *
+      (1 - fistLock)
 
     const trail = trailRef.current
     trail[0].x = MathUtils.damp(trail[0].x, anchorX, 10, delta)
@@ -810,12 +644,17 @@ function ParticleField({ controllerState, flowFocus }: ParticleSceneProps) {
     trail[0].strength = MathUtils.damp(
       trail[0].strength,
       current.handDetected && controllerState.mode === 'flow'
-        ? (0.14 + flowEnergy * 0.36 + current.eventPulse * 0.18) *
+        ? (0.14 +
+            flowEnergy * 0.36 +
+            current.eventPulse * 0.18 +
+            Math.abs(forwardTravel) * 0.22 +
+            travelBurst * 0.3) *
           signatureTrail *
           (1 - fistModeMix * 0.92) *
-          stabilityFactor
+          stabilityFactor *
+          (1 - fistLock)
         : 0,
-      5.8,
+      fistInputActive ? 10.5 : 5.8,
       delta,
     )
     for (let index = 1; index < trail.length; index += 1) {
@@ -842,12 +681,21 @@ function ParticleField({ controllerState, flowFocus }: ParticleSceneProps) {
     const gravityPull = mixes.fist * 0.026 * flowModeMix * (1 - countModeMix)
     const ambientFlowStrength =
       !current.handDetected && controllerState.mode === 'flow' ? 0.0038 * (1 - countModeMix) : 0
+    const fistSpinY = time * 0.28 * fistModeMix
+    const fistTiltX = Math.sin(time * 0.26) * 0.16 * fistModeMix
     for (let index = 0; index < drawCount; index += 1) {
       const p = index * 3
       const seed = index * 4
       const phase = seeds[seed + 3]
       const theta = seeds[seed + 1]
       const scale = scales[index]
+      const rotatedFistTarget = rotateFistTarget(
+        targetFields.fist[p],
+        targetFields.fist[p + 1],
+        targetFields.fist[p + 2],
+        fistSpinY,
+        fistTiltX,
+      )
 
       const breathe =
         1 +
@@ -858,33 +706,36 @@ function ParticleField({ controllerState, flowFocus }: ParticleSceneProps) {
       const wobbleZ = Math.sin(time * 0.78 + theta + phase) * turbulence
 
       const targetX =
-        (targetFields.neutral[p] * neutralMix +
+        (targetFields.neutral[p] * lockedNeutralMix +
           targetFields.openPalm[p] * mixes.openPalm +
-          targetFields.fist[p] * mixes.fist +
+          rotatedFistTarget.x * mixes.fist +
           targetFields.victory[p] * mixes.victory +
           targetFields.heart[p] * mixes.heart) *
           current.spread *
-          breathe +
+          breathe *
+          travelScale +
         anchorX
 
       const targetY =
-        (targetFields.neutral[p + 1] * neutralMix +
+        (targetFields.neutral[p + 1] * lockedNeutralMix +
           targetFields.openPalm[p + 1] * mixes.openPalm +
-          targetFields.fist[p + 1] * mixes.fist +
+          rotatedFistTarget.y * mixes.fist +
           targetFields.victory[p + 1] * mixes.victory +
           targetFields.heart[p + 1] * mixes.heart) *
           current.spread *
-          breathe +
+          breathe *
+          travelScale +
         anchorY
 
       const targetZ =
-        (targetFields.neutral[p + 2] * neutralMix +
+        (targetFields.neutral[p + 2] * lockedNeutralMix +
           targetFields.openPalm[p + 2] * mixes.openPalm +
-          targetFields.fist[p + 2] * mixes.fist +
+          rotatedFistTarget.z * mixes.fist +
           targetFields.victory[p + 2] * mixes.victory +
           targetFields.heart[p + 2] * mixes.heart) *
           current.spread *
-          breathe
+          breathe +
+        forwardTravel * 1.9
       const countTargetX = countField[p] * current.spread * 0.84 + anchorX * 0.32
       const countTargetY = countField[p + 1] * current.spread * 0.84 + anchorY * 0.32
       const countTargetZ = countField[p + 2] * current.spread * 0.84
@@ -912,12 +763,6 @@ function ParticleField({ controllerState, flowFocus }: ParticleSceneProps) {
         1 / (1 + radialDistance * radialDistance * (3.6 + current.compression * 4.6))
       const radialX = deltaX / radialDistance
       const radialY = deltaY / radialDistance
-      const focusDistance = flowFocusActive
-        ? Math.hypot(positionArray[p] - flowFocusWorldX, positionArray[p + 1] - flowFocusWorldY)
-        : 999
-      const focusInfluence = flowFocusActive
-        ? Math.exp(-(focusDistance * focusDistance) / Math.max(0.04, flowFocusRadius * flowFocusRadius))
-        : 0
 
       velocities[p] += radialX * bloomStrength * radialInfluence
       velocities[p + 1] += radialY * bloomStrength * radialInfluence
@@ -929,20 +774,15 @@ function ParticleField({ controllerState, flowFocus }: ParticleSceneProps) {
       velocities[p] += stableDrift.x * driftStrength * (0.7 + radialInfluence * 1.2)
       velocities[p + 1] += stableDrift.y * driftStrength * (0.7 + radialInfluence * 1.2)
       velocities[p + 2] += (current.swirl * 0.0018 + current.energy * 0.0022) * radialInfluence
-      velocities[p] +=
-        (flowFocusWorldX - positionArray[p]) *
-        focusInfluence *
-        0.0032 *
-        flowFocusReveal *
-        (0.76 + flowFocusConfidence * 0.4)
-      velocities[p + 1] +=
-        (flowFocusWorldY - positionArray[p + 1]) *
-        focusInfluence *
-        0.0032 *
-        flowFocusReveal *
-        (0.76 + flowFocusConfidence * 0.4)
-      velocities[p + 2] +=
-        focusInfluence * flowFocusReveal * (0.0014 + flowFocusShimmer * 0.0009)
+      const travelDirection = Math.sign(forwardTravel || travelDelta || 0)
+      const tunnelStrength =
+        (Math.abs(forwardTravel) * 0.03 + travelBurst * 0.018) *
+        (0.45 + (1 - radialInfluence) * 0.9)
+      if (travelDirection !== 0 && tunnelStrength > 0.0001) {
+        velocities[p] += radialX * tunnelStrength * travelDirection
+        velocities[p + 1] += radialY * tunnelStrength * travelDirection
+        velocities[p + 2] += travelDirection * (Math.abs(forwardTravel) * 0.06 + travelBurst * 0.03)
+      }
 
       if (shockStrength > 0.0001) {
         const ringDelta = radialDistance - shockRadius
@@ -1006,7 +846,6 @@ function ParticleField({ controllerState, flowFocus }: ParticleSceneProps) {
           ((0.018 + gestureEventRef.current * 0.012) * (1 - current.rigidity * 0.76) +
             countRigidityMix * 0.01) +
         shockwaveRef.current * radialInfluence * 0.06 +
-        focusInfluence * flowFocusReveal * 0.24 +
         scale * 0.012
 
       mainColor.setHSL(
@@ -1014,16 +853,6 @@ function ParticleField({ controllerState, flowFocus }: ParticleSceneProps) {
         colorSettings.saturation,
         MathUtils.clamp(lightness, 0.26, 0.88),
       )
-      if (focusInfluence > 0.001 && flowFocusReveal > 0.01) {
-        mainColor.lerp(
-          focusGlowColor,
-          MathUtils.clamp(
-            focusInfluence * flowFocusReveal * (0.18 + flowFocusShimmer * 0.12),
-            0,
-            0.42,
-          ),
-        )
-      }
       colorArray[p] = mainColor.r
       colorArray[p + 1] = mainColor.g
       colorArray[p + 2] = mainColor.b
@@ -1037,26 +866,29 @@ function ParticleField({ controllerState, flowFocus }: ParticleSceneProps) {
       0.0235 +
       flowModeMix * 0.0032 -
       countModeMix * 0.0018 -
-      fistModeMix * 0.0012 +
-      flowFocusReveal * 0.0008
+      fistModeMix * 0.0012
     material.uniforms.uPointSize.value = Math.max(
       9,
       viewport.height * size.height * current.size * mainPointScalar,
     )
     material.uniforms.uPulse.value = MathUtils.damp(
       material.uniforms.uPulse.value as number,
-      current.velocity * 0.42 +
-        current.brightness * 0.12 +
-        current.energy * 0.2 +
-        gestureEventRef.current * 0.18 +
-        mixes.fist * 0.08,
-      4.2,
+      fistInputActive
+        ? 0.12 + current.velocity * 0.1 + mixes.fist * 0.03
+        : current.velocity * 0.42 +
+          current.brightness * 0.12 +
+          current.energy * 0.2 +
+          Math.abs(forwardTravel) * 0.34 +
+          travelBurst * 0.26 +
+          gestureEventRef.current * 0.18 +
+          mixes.fist * 0.08,
+      fistInputActive ? 8.6 : 4.2,
       delta,
     )
     material.uniforms.uSquareMix.value = MathUtils.damp(
       material.uniforms.uSquareMix.value as number,
-      0.16 + fistModeMix * 0.92 + countModeMix * 0.08 + flowFocusReveal * 0.04,
-      6.6,
+      0.16 + fistModeMix * 0.92 + countModeMix * 0.08,
+      fistInputActive ? 10.5 : 6.6,
       delta,
     )
 
@@ -1150,112 +982,6 @@ function ParticleField({ controllerState, flowFocus }: ParticleSceneProps) {
       delta,
     )
 
-    const flowFocusAuraDrawCount = flowFocusActive ? FLOW_FOCUS_AURA_POINT_COUNT : 0
-    const flowFocusCoreDrawCount = flowFocusActive ? FLOW_FOCUS_CORE_POINT_COUNT : 0
-
-    if (flowFocusActive && flowFocus) {
-      for (let index = 0; index < FLOW_FOCUS_AURA_POINT_COUNT; index += 1) {
-        const p = index * 3
-        const auraDrift = 0.018 + flowFocusShimmer * 0.022
-        const targetX =
-          flowFocusWorldX +
-          flowFocusAuraTemplate.positions[p] * flowFocusRadius +
-          Math.sin(time * (0.82 + pseudoNoise(index + 3203) * 0.44) + index * 0.035) * auraDrift
-        const targetY =
-          flowFocusWorldY +
-          flowFocusAuraTemplate.positions[p + 1] * flowFocusRadius +
-          Math.cos(time * (0.76 + pseudoNoise(index + 3257) * 0.42) + index * 0.042) * auraDrift
-        const targetZ =
-          flowFocusAuraTemplate.positions[p + 2] +
-          Math.sin(time * 0.64 + index * 0.05) * 0.02 * flowFocusShimmer
-
-        flowFocusAuraVelocities[p] += (targetX - flowFocusAuraPositionArray[p]) * 0.12
-        flowFocusAuraVelocities[p + 1] += (targetY - flowFocusAuraPositionArray[p + 1]) * 0.12
-        flowFocusAuraVelocities[p + 2] += (targetZ - flowFocusAuraPositionArray[p + 2]) * 0.1
-
-        flowFocusAuraVelocities[p] *= 0.85
-        flowFocusAuraVelocities[p + 1] *= 0.85
-        flowFocusAuraVelocities[p + 2] *= 0.83
-
-        flowFocusAuraPositionArray[p] += flowFocusAuraVelocities[p]
-        flowFocusAuraPositionArray[p + 1] += flowFocusAuraVelocities[p + 1]
-        flowFocusAuraPositionArray[p + 2] += flowFocusAuraVelocities[p + 2]
-
-        focusAuraColor.setRGB(
-          0.62 + flowFocusReveal * 0.08,
-          0.84 + Math.sin(time * 1.2 + index * 0.04) * 0.05,
-          0.98,
-        )
-
-        flowFocusAuraColorArray[p] = focusAuraColor.r
-        flowFocusAuraColorArray[p + 1] = focusAuraColor.g
-        flowFocusAuraColorArray[p + 2] = focusAuraColor.b
-      }
-
-      for (let index = 0; index < FLOW_FOCUS_CORE_POINT_COUNT; index += 1) {
-        const p = index * 3
-        const coreDrift = 0.006 + flowFocusShimmer * 0.008
-        const targetX =
-          flowFocusWorldX +
-          flowFocusCoreTemplate.positions[p] * flowFocusRadius * 0.56 +
-          Math.sin(time * (1.28 + pseudoNoise(index + 3403) * 0.52) + index * 0.08) * coreDrift
-        const targetY =
-          flowFocusWorldY +
-          flowFocusCoreTemplate.positions[p + 1] * flowFocusRadius * 0.56 +
-          Math.cos(time * (1.18 + pseudoNoise(index + 3469) * 0.48) + index * 0.09) * coreDrift
-        const targetZ = flowFocusCoreTemplate.positions[p + 2]
-
-        flowFocusCoreVelocities[p] += (targetX - flowFocusCorePositionArray[p]) * 0.2
-        flowFocusCoreVelocities[p + 1] += (targetY - flowFocusCorePositionArray[p + 1]) * 0.2
-        flowFocusCoreVelocities[p + 2] += (targetZ - flowFocusCorePositionArray[p + 2]) * 0.18
-
-        flowFocusCoreVelocities[p] *= 0.78
-        flowFocusCoreVelocities[p + 1] *= 0.78
-        flowFocusCoreVelocities[p + 2] *= 0.76
-
-        flowFocusCorePositionArray[p] += flowFocusCoreVelocities[p]
-        flowFocusCorePositionArray[p + 1] += flowFocusCoreVelocities[p + 1]
-        flowFocusCorePositionArray[p + 2] += flowFocusCoreVelocities[p + 2]
-
-        focusCoreColor.setRGB(
-          0.92 + flowFocusReveal * 0.04,
-          0.97,
-          1,
-        )
-
-        flowFocusCoreColorArray[p] = focusCoreColor.r
-        flowFocusCoreColorArray[p + 1] = focusCoreColor.g
-        flowFocusCoreColorArray[p + 2] = focusCoreColor.b
-      }
-    }
-
-    flowFocusAuraGeometry.setDrawRange(0, flowFocusAuraDrawCount)
-    flowFocusAuraPositionAttr.needsUpdate = flowFocusAuraDrawCount > 0
-    flowFocusAuraColorAttr.needsUpdate = flowFocusAuraDrawCount > 0
-    flowFocusAuraMaterial.uniforms.uPointSize.value = Math.max(16, viewport.height * size.height * (0.0125 + flowFocusConfidence * 0.003))
-    flowFocusAuraMaterial.uniforms.uOpacity.value = MathUtils.damp(
-      flowFocusAuraMaterial.uniforms.uOpacity.value as number,
-      flowFocusActive ? 0.92 + flowFocusConfidence * 0.08 : 0,
-      flowFocusActive ? 8.8 : 5.6,
-      delta,
-    )
-    flowFocusAuraMaterial.uniforms.uShimmer.value = MathUtils.damp(
-      flowFocusAuraMaterial.uniforms.uShimmer.value as number,
-      flowFocusActive ? flowFocusShimmer : 0,
-      6.4,
-      delta,
-    )
-
-    flowFocusCoreGeometry.setDrawRange(0, flowFocusCoreDrawCount)
-    flowFocusCorePositionAttr.needsUpdate = flowFocusCoreDrawCount > 0
-    flowFocusCoreColorAttr.needsUpdate = flowFocusCoreDrawCount > 0
-    flowFocusCoreMaterial.uniforms.uPointSize.value = Math.max(12, viewport.height * size.height * (0.0098 + flowFocusConfidence * 0.0026))
-    flowFocusCoreMaterial.uniforms.uOpacity.value = MathUtils.damp(
-      flowFocusCoreMaterial.uniforms.uOpacity.value as number,
-      flowFocusActive ? 0.96 + flowFocusConfidence * 0.04 : 0,
-      flowFocusActive ? 10.2 : 6,
-      delta,
-    )
   })
 
   return (
@@ -1318,64 +1044,6 @@ function ParticleField({ controllerState, flowFocus }: ParticleSceneProps) {
           vertexColors
         />
       </points>
-      <points ref={flowFocusAuraPointsRef}>
-        <bufferGeometry>
-          <bufferAttribute
-            attach="attributes-position"
-            args={[flowFocusAuraPositions, 3]}
-            usage={DynamicDrawUsage}
-          />
-          <bufferAttribute
-            attach="attributes-color"
-            args={[flowFocusAuraColors, 3]}
-            usage={DynamicDrawUsage}
-          />
-          <bufferAttribute
-            attach="attributes-aScale"
-            args={[flowFocusAuraTemplate.scales, 1]}
-            usage={DynamicDrawUsage}
-          />
-        </bufferGeometry>
-        <shaderMaterial
-          ref={flowFocusAuraMaterialRef}
-          uniforms={flowFocusUniforms}
-          vertexShader={flowFocusAuraVertexShader}
-          fragmentShader={flowFocusAuraFragmentShader}
-          transparent
-          depthWrite={false}
-          blending={AdditiveBlending}
-          vertexColors
-        />
-      </points>
-      <points ref={flowFocusCorePointsRef}>
-        <bufferGeometry>
-          <bufferAttribute
-            attach="attributes-position"
-            args={[flowFocusCorePositions, 3]}
-            usage={DynamicDrawUsage}
-          />
-          <bufferAttribute
-            attach="attributes-color"
-            args={[flowFocusCoreColors, 3]}
-            usage={DynamicDrawUsage}
-          />
-          <bufferAttribute
-            attach="attributes-aScale"
-            args={[flowFocusCoreTemplate.scales, 1]}
-            usage={DynamicDrawUsage}
-          />
-        </bufferGeometry>
-        <shaderMaterial
-          ref={flowFocusCoreMaterialRef}
-          uniforms={flowFocusCoreUniforms}
-          vertexShader={flowFocusCoreVertexShader}
-          fragmentShader={flowFocusCoreFragmentShader}
-          transparent
-          depthWrite={false}
-          blending={AdditiveBlending}
-          vertexColors
-        />
-      </points>
     </>
   )
 }
@@ -1395,7 +1063,7 @@ function SceneEffects() {
   )
 }
 
-export function ParticleScene({ controllerState, flowFocus }: ParticleSceneProps) {
+export function ParticleScene({ controllerState }: ParticleSceneProps) {
   return (
     <div className="particle-scene" aria-hidden="true">
       <Canvas
@@ -1409,7 +1077,7 @@ export function ParticleScene({ controllerState, flowFocus }: ParticleSceneProps
         <pointLight position={[4, 6, 3]} intensity={14} color="#8fd3ff" />
         <pointLight position={[-4, -3, 4]} intensity={10} color="#8effde" />
         <pointLight position={[0, 0, 6]} intensity={7} color="#ffd2ff" />
-        <ParticleField controllerState={controllerState} flowFocus={flowFocus} />
+        <ParticleField controllerState={controllerState} />
         <SceneEffects />
       </Canvas>
     </div>

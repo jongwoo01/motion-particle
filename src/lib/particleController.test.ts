@@ -33,6 +33,7 @@ describe('particle presets', () => {
         rotation: 0.52,
         horizontal: 0.28,
         vertical: -0.18,
+        depth: 0.12,
       },
     })
 
@@ -43,6 +44,7 @@ describe('particle presets', () => {
     expect(controller.swirl).toBeGreaterThan(0.4)
     expect(controller.energy).toBeGreaterThan(0.4)
     expect(controller.rigidity).toBeLessThan(0.5)
+    expect(controller.travel).toBeGreaterThan(0)
   })
 
   it('creates a tighter renderer state in count mode', () => {
@@ -61,6 +63,7 @@ describe('particle presets', () => {
         rotation: 0.24,
         horizontal: 0.16,
         vertical: 0.09,
+        depth: 0.4,
       },
     })
 
@@ -72,5 +75,55 @@ describe('particle presets', () => {
     expect(controller.swirl).toBe(0)
     expect(controller.eventPulse).toBe(0)
     expect(controller.rigidity).toBeGreaterThan(0.8)
+    expect(controller.travel).toBe(0)
+  })
+
+  it('locks fist flow closer to a stable cube than a drifting cloud', () => {
+    const controller = resolveParticleControllerState({
+      gesture: 'fist',
+      handDetected: true,
+      hardwareConcurrency: 12,
+      metrics: {
+        anchor: { x: 0.08, y: -0.04 },
+        velocity: 0.7,
+        openness: 0.52,
+        spread: 0.48,
+        pinch: 0.24,
+        rotation: 0.36,
+        horizontal: 0.22,
+        vertical: -0.12,
+        depth: 0.8,
+      },
+    })
+
+    expect(controller.gesture).toBe('fist')
+    expect(controller.spread).toBeLessThan(0.7)
+    expect(controller.bloom).toBe(0)
+    expect(controller.swirl).toBeLessThanOrEqual(0.02)
+    expect(controller.eventPulse).toBeLessThan(0.15)
+    expect(controller.compression).toBeGreaterThanOrEqual(0.78)
+    expect(controller.travel).toBeLessThan(0.05)
+  })
+
+  it('amplifies forward travel when an open palm moves toward the camera', () => {
+    const controller = resolveParticleControllerState({
+      gesture: 'open_palm',
+      handDetected: true,
+      hardwareConcurrency: 12,
+      metrics: {
+        anchor: { x: 0.02, y: -0.03 },
+        velocity: 0.52,
+        openness: 0.94,
+        spread: 0.88,
+        pinch: 0.02,
+        rotation: 0.08,
+        horizontal: 0.04,
+        vertical: -0.06,
+        depth: 0.82,
+      },
+    })
+
+    expect(controller.gesture).toBe('open_palm')
+    expect(controller.travel).toBeGreaterThan(0.8)
   })
 })

@@ -1,19 +1,16 @@
-import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import './App.css'
 import { HandOverlay } from './components/HandOverlay'
 import { ParticleScene } from './components/ParticleScene'
 import { StatusHud } from './components/StatusHud'
-import { SingleFingerFocusTracker, createFlowFocusState } from './lib/gesture'
 import { useHandTracking } from './hooks/useHandTracking'
 import { resolveParticleControllerState } from './lib/particleController'
-import type { FlowFocusState, InteractionMode } from './types'
+import type { InteractionMode } from './types'
 
 function App() {
   const videoRef = useRef<HTMLVideoElement>(null)
   const tracking = useHandTracking(videoRef)
   const [mode, setMode] = useState<InteractionMode>('flow')
-  const [flowFocus, setFlowFocus] = useState<FlowFocusState | null>(null)
-  const flowFocusTrackerRef = useRef(new SingleFingerFocusTracker())
 
   const controllerState = useMemo(
     () =>
@@ -28,37 +25,6 @@ function App() {
       }),
     [mode, tracking.fingerCount, tracking.gesture, tracking.handDetected, tracking.motionMetrics],
   )
-
-  const deferredControllerState = useDeferredValue(controllerState)
-
-  useEffect(() => {
-    if (mode !== 'flow') {
-      flowFocusTrackerRef.current.reset()
-    }
-  }, [mode])
-
-  useEffect(() => {
-    if (mode !== 'flow') {
-      return
-    }
-
-    const timestamp = tracking.lastDetectionTimestamp ?? 0
-
-    if (!tracking.handDetected || tracking.landmarks.length < 21) {
-      setFlowFocus(createFlowFocusState(flowFocusTrackerRef.current.update(null, timestamp)))
-      return
-    }
-
-    const focus = flowFocusTrackerRef.current.update(
-      {
-        landmarks: tracking.landmarks,
-        handedness: 'Unknown',
-      },
-      timestamp,
-    )
-
-    setFlowFocus(createFlowFocusState(focus))
-  }, [mode, tracking.handDetected, tracking.landmarks, tracking.lastDetectionTimestamp])
 
   const overlayCopy = useMemo(() => {
     switch (tracking.trackingState) {
@@ -124,7 +90,7 @@ function App() {
         playsInline
       />
 
-      <ParticleScene controllerState={deferredControllerState} flowFocus={mode === 'flow' ? flowFocus : null} />
+      <ParticleScene controllerState={controllerState} />
       <HandOverlay
         hands={tracking.hands}
         rawDetectionCount={tracking.rawDetectionCount}
@@ -140,7 +106,7 @@ function App() {
           <p className="title-lockup__body">
             {mode === 'count'
               ? `지금 이 우주의 밀도는 ${tracking.fingerCount}입니다.`
-              : '이 공간의 물리는 오직 당신 손만이 압니다.'}
+              : '오직 당신 손으로 공간을 제어해보세요.'}
           </p>
         </header>
 

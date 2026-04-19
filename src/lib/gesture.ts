@@ -300,12 +300,23 @@ export function classifyGesture(frame: Pick<HandSignalFrame, 'landmarks' | 'hand
       fingerStates.ring.score +
       fingerStates.pinky.score) /
     4
+  const strongestNonThumb = Math.max(
+    fingerStates.index.score,
+    fingerStates.middle.score,
+    fingerStates.ring.score,
+    fingerStates.pinky.score,
+  )
 
   if (extendedCount >= 4 && nonThumbAverage > 0.66) {
     return 'open_palm'
   }
 
-  if (extendedCount <= 1 && nonThumbAverage < 0.38 && fingerStates.thumb.score < 0.56) {
+  if (
+    extendedCount <= 2 &&
+    nonThumbAverage < 0.46 &&
+    strongestNonThumb < 0.78 &&
+    fingerStates.thumb.score < 0.66
+  ) {
     return 'fist'
   }
 
@@ -620,12 +631,14 @@ export function computeMotionMetrics(
       rotation: 0,
       horizontal: 0,
       vertical: 0,
+      depth: 0,
     }
   }
 
   const wrist = frame.landmarks[WRIST]
   const indexBase = frame.landmarks[INDEX_MCP]
   const pinkyBase = frame.landmarks[PINKY_MCP]
+  const { palmCenter, palmWidth } = getPalmMetrics(frame.landmarks)
   const anchor = {
     x: (wrist.x + indexBase.x + pinkyBase.x) / 3,
     y: (wrist.y + indexBase.y + pinkyBase.y) / 3,
@@ -672,12 +685,16 @@ export function computeMotionMetrics(
       rotation: 0,
       horizontal: 0,
       vertical: 0,
+      depth: 0,
     }
   }
 
   const previousWrist = previousFrame.landmarks[WRIST]
   const previousIndexBase = previousFrame.landmarks[INDEX_MCP]
   const previousPinkyBase = previousFrame.landmarks[PINKY_MCP]
+  const { palmCenter: previousPalmCenter, palmWidth: previousPalmWidth } = getPalmMetrics(
+    previousFrame.landmarks,
+  )
   const previousAnchor = {
     x: (previousWrist.x + previousIndexBase.x + previousPinkyBase.x) / 3,
     y: (previousWrist.y + previousIndexBase.y + previousPinkyBase.y) / 3,
@@ -701,6 +718,10 @@ export function computeMotionMetrics(
     -1,
     1,
   )
+  const palmDepthDelta = (previousPalmCenter.z - palmCenter.z) * 8.8
+  const palmScaleDelta =
+    ((palmWidth - previousPalmWidth) / Math.max(previousPalmWidth, 1e-4)) * 2.1
+  const depth = clamp(palmDepthDelta * 0.64 + palmScaleDelta * 0.36, -1, 1)
 
   return {
     anchor: {
@@ -714,5 +735,6 @@ export function computeMotionMetrics(
     rotation,
     horizontal,
     vertical,
+    depth,
   }
 }
