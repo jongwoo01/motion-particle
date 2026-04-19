@@ -11,16 +11,16 @@ const clamp = (value: number, min: number, max: number) =>
 
 const PRESET_COUNTS = {
   high: {
-    neutral: 16000,
-    open_palm: 30000,
-    fist: 12000,
-    victory: 22000,
+    neutral: 22000,
+    open_palm: 42000,
+    fist: 18000,
+    victory: 30000,
   },
   low: {
-    neutral: 9000,
-    open_palm: 14000,
-    fist: 8000,
-    victory: 12000,
+    neutral: 12000,
+    open_palm: 22000,
+    fist: 10000,
+    victory: 16000,
   },
 }
 
@@ -34,7 +34,7 @@ export function createParticlePreset(
     case 'open_palm':
       return {
         count: counts.open_palm,
-        size: 0.082,
+        size: 0.07,
         velocity: 0.82,
         spread: 1.78,
         attraction: 0.22,
@@ -45,18 +45,18 @@ export function createParticlePreset(
     case 'fist':
       return {
         count: counts.fist,
-        size: 0.104,
-        velocity: 0.54,
-        spread: 0.72,
-        attraction: 1.12,
-        hueShift: -0.03,
-        noiseStrength: 0.12,
-        brightness: 0.72,
+        size: 0.076,
+        velocity: 0.36,
+        spread: 0.68,
+        attraction: 0.88,
+        hueShift: -0.04,
+        noiseStrength: 0.08,
+        brightness: 0.70,
       }
     case 'victory':
       return {
         count: counts.victory,
-        size: 0.086,
+        size: 0.072,
         velocity: 0.94,
         spread: 1.22,
         attraction: 0.56,
@@ -67,7 +67,7 @@ export function createParticlePreset(
     case 'heart':
       return {
         count: counts.victory,
-        size: 0.106,
+        size: 0.086,
         velocity: 0.46,
         spread: 0.84,
         attraction: 1.08,
@@ -79,7 +79,7 @@ export function createParticlePreset(
     default:
       return {
         count: counts.neutral,
-        size: 0.078,
+        size: 0.064,
         velocity: 0.52,
         spread: 0.94,
         attraction: 0.46,
@@ -104,28 +104,34 @@ export function resolveParticleControllerState(input: {
   const basePreset =
     resolvedMode === 'count'
       ? {
-          count: lowPowerMode ? 12000 : 24000,
-          size: 0.112,
-          velocity: 0.36,
-          spread: 0.88,
-          attraction: 1.26,
+          count: lowPowerMode ? 16000 : 30000,
+          size: 0.086,
+          velocity: 0.28,
+          spread: 0.84,
+          attraction: 1.34,
           hueShift: 0.12,
-          noiseStrength: 0.06,
-          brightness: 0.82,
+          noiseStrength: 0.02,
+          brightness: 0.78,
         }
       : createParticlePreset(input.handDetected ? input.gesture : 'none', lowPowerMode)
 
   const motionBoost = input.handDetected
-    ? clamp(input.metrics.velocity * 0.58 + input.metrics.openness * 0.42, 0, 0.7)
+    ? clamp(
+        input.metrics.velocity * 0.28 +
+          input.metrics.openness * 0.18 +
+          input.metrics.spread * 0.14,
+        0,
+        0.42,
+      )
     : 0
 
   const spreadBoost = input.handDetected
-    ? clamp(input.metrics.spread * 0.52, 0, 0.58)
+    ? clamp(input.metrics.spread * 0.34 + input.metrics.openness * 0.08, 0, 0.34)
     : 0
   const drift = input.handDetected
     ? {
-        x: clamp(input.metrics.horizontal * 0.9, -1, 1),
-        y: clamp(input.metrics.vertical * 0.9, -1, 1),
+        x: clamp(input.metrics.horizontal * 0.74, -1, 1),
+        y: clamp(input.metrics.vertical * 0.74, -1, 1),
       }
     : { x: 0, y: 0 }
   const energy = input.handDetected
@@ -178,20 +184,38 @@ export function resolveParticleControllerState(input: {
         1,
       )
     : 0
+  const rigidity = !input.handDetected
+    ? resolvedMode === 'count'
+      ? 0.78
+      : 0.22
+    : resolvedMode === 'count'
+      ? 0.86
+      : clamp(
+          0.22 +
+            (input.gesture === 'fist' ? 0.82 : 0) +
+            (input.gesture === 'heart' ? 0.38 : 0) +
+            (input.gesture === 'victory' ? 0.12 : 0) +
+            input.metrics.pinch * 0.12 +
+            (1 - input.metrics.openness) * 0.18,
+          0.2,
+          1,
+        )
 
   return {
     ...basePreset,
-    count: Math.round(basePreset.count * (1 + motionBoost * (resolvedMode === 'count' ? 0.12 : 0.28))),
-    size: basePreset.size + spreadBoost * (resolvedMode === 'count' ? 0.004 : 0.01),
-    velocity: basePreset.velocity + motionBoost * (resolvedMode === 'count' ? 0.14 : 0.28),
-    spread: basePreset.spread + spreadBoost * (resolvedMode === 'count' ? 0.22 : 0.82),
-    noiseStrength: basePreset.noiseStrength + motionBoost * (resolvedMode === 'count' ? 0.04 : 0.16),
-    brightness: basePreset.brightness + motionBoost * (resolvedMode === 'count' ? 0.08 : 0.18),
+    count: Math.round(basePreset.count * (1 + motionBoost * (resolvedMode === 'count' ? 0.1 : 0.18))),
+    size: basePreset.size + spreadBoost * (resolvedMode === 'count' ? 0.003 : 0.01),
+    velocity: basePreset.velocity + motionBoost * (resolvedMode === 'count' ? 0.08 : 0.18),
+    spread: basePreset.spread + spreadBoost * (resolvedMode === 'count' ? 0.16 : 0.44),
+    noiseStrength: basePreset.noiseStrength + motionBoost * (resolvedMode === 'count' ? 0.02 : 0.09),
+    brightness: basePreset.brightness + motionBoost * (resolvedMode === 'count' ? 0.05 : 0.12),
     gesture: input.handDetected ? input.gesture : 'none',
     handDetected: input.handDetected,
     anchor: input.handDetected ? input.metrics.anchor : { x: 0, y: 0 },
     mode: resolvedMode,
     countValue: resolvedCountValue,
+    badgeCount: resolvedMode === 'count' ? resolvedCountValue : 0,
+    rigidity,
     energy,
     swirl: resolvedMode === 'count' ? 0 : swirl,
     bloom: resolvedMode === 'count' ? 0 : bloom,

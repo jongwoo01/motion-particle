@@ -15,6 +15,7 @@ describe('particle presets', () => {
     const neutral = createParticlePreset('none', false)
 
     expect(fist.attraction).toBeGreaterThan(neutral.attraction)
+    expect(fist.noiseStrength).toBeLessThan(neutral.noiseStrength)
     expect(fist.count).toBeLessThan(neutral.count)
   })
 
@@ -41,6 +42,7 @@ describe('particle presets', () => {
     expect(controller.noiseStrength).toBeGreaterThan(0.3)
     expect(controller.swirl).toBeGreaterThan(0.4)
     expect(controller.energy).toBeGreaterThan(0.4)
+    expect(controller.rigidity).toBeLessThan(0.5)
   })
 
   it('creates a tighter renderer state in count mode', () => {
@@ -64,9 +66,11 @@ describe('particle presets', () => {
 
     expect(controller.mode).toBe('count')
     expect(controller.countValue).toBe(7)
+    expect(controller.badgeCount).toBe(7)
     expect(controller.attraction).toBeGreaterThan(1)
-    expect(controller.noiseStrength).toBeLessThan(0.2)
+    expect(controller.noiseStrength).toBeLessThan(0.08)
     expect(controller.swirl).toBe(0)
     expect(controller.eventPulse).toBe(0)
+    expect(controller.rigidity).toBeGreaterThan(0.8)
   })
 })

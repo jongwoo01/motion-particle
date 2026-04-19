@@ -6,7 +6,13 @@ import {
   useState,
   type RefObject,
 } from 'react'
-import type { HandSignalFrame, HandTrackingSnapshot } from '../types'
+import type {
+  CameraPermissionState,
+  CameraStreamState,
+  HandSignalFrame,
+  HandTrackingSnapshot,
+  TrackingState,
+} from '../types'
 import {
   GestureSmoother,
   classifyGroupGesture,
@@ -14,11 +20,18 @@ import {
   computeMotionMetrics,
   smoothFingerCountHistory,
 } from '../lib/gesture'
+import {
+  CAMERA_PERMISSION_QUERY,
+  classifyCameraStartError,
+  normalizeCameraPermissionState,
+} from '../lib/camera'
 
 import type { Results, Hands as HandsInstance } from '@mediapipe/hands'
 
 const INITIAL_SNAPSHOT: HandTrackingSnapshot = {
   trackingState: 'idle',
+  permissionState: 'unknown',
+  streamState: 'inactive',
   modelReady: false,
   isCameraActive: false,
   handDetected: false,
@@ -129,13 +142,16 @@ export function useHandTracking(videoRef: RefObject<HTMLVideoElement | null>) {
   const animationFrameRef = useRef<number | null>(null)
   const lastVideoTimeRef = useRef(-1)
   const previousFrameRef = useRef<HandSignalFrame | null>(null)
-  const smootherRef = useRef(new GestureSmoother(8))
+  const smootherRef = useRef(new GestureSmoother(6))
   const pendingTimestampRef = useRef<number | null>(null)
   const inferenceStartedAtRef = useRef(0)
   const sendingRef = useRef(false)
   const isMountedRef = useRef(true)
   const fingerCountHistoryRef = useRef<number[]>([])
   const stableFingerCountRef = useRef(0)
+  const permissionStatusRef = useRef<PermissionStatus | null>(null)
+  const permissionCleanupRef = useRef<(() => void) | null>(null)
+  const streamCleanupRef = useRef<(() => void) | null>(null)
 
   const stopLoop = useCallback(() => {
     if (animationFrameRef.current !== null) {
@@ -144,8 +160,20 @@ export function useHandTracking(videoRef: RefObject<HTMLVideoElement | null>) {
     }
   }, [])
 
+  const clearPermissionSubscription = useCallback(() => {
+    permissionCleanupRef.current?.()
+    permissionCleanupRef.current = null
+    permissionStatusRef.current = null
+  }, [])
+
+  const clearStreamSubscription = useCallback(() => {
+    streamCleanupRef.current?.()
+    streamCleanupRef.current = null
+  }, [])
+
   const stopCamera = useCallback(() => {
     stopLoop()
+    clearStreamSubscription()
     streamRef.current?.getTracks().forEach((track) => track.stop())
     streamRef.current = null
 
@@ -166,6 +194,7 @@ export function useHandTracking(videoRef: RefObject<HTMLVideoElement | null>) {
         ...current,
         isCameraActive: false,
         handDetected: false,
+        streamState: 'inactive',
         gesture: 'none',
         landmarks: [],
         hands: [],
@@ -179,7 +208,208 @@ export function useHandTracking(videoRef: RefObject<HTMLVideoElement | null>) {
         motionMetrics: INITIAL_SNAPSHOT.motionMetrics,
       }))
     })
-  }, [stopLoop, videoRef])
+  }, [clearStreamSubscription, stopLoop, videoRef])
+
+  const setTerminalCameraState = useCallback((
+    trackingState: TrackingState,
+    debugState: string,
+    errorMessage: string,
+    streamState: CameraStreamState = 'ended',
+    permissionState?: CameraPermissionState,
+  ) => {
+    stopCamera()
+    startTransition(() => {
+      setSnapshot((current) => ({
+        ...current,
+        modelReady: handsRef.current !== null,
+        trackingState,
+        permissionState: permissionState ?? current.permissionState,
+        streamState,
+        debugState,
+        errorMessage,
+      }))
+    })
+  }, [stopCamera])
+
+  const syncPermissionState = useCallback(async () => {
+    if (typeof navigator === 'undefined' || !navigator.permissions?.query) {
+      startTransition(() => {
+        setSnapshot((current) => ({
+          ...current,
+          permissionState: 'unsupported',
+        }))
+      })
+      return 'unsupported' as CameraPermissionState
+    }
+
+    clearPermissionSubscription()
+
+    try {
+      const permissionStatus = await navigator.permissions.query(CAMERA_PERMISSION_QUERY)
+      permissionStatusRef.current = permissionStatus
+
+      const applyPermissionState = () => {
+        const nextPermissionState = normalizeCameraPermissionState(permissionStatus.state)
+        debugLog('permission state updated', { state: nextPermissionState })
+
+        if (!isMountedRef.current) {
+          return
+        }
+
+        if (nextPermissionState === 'denied' && streamRef.current) {
+          setTerminalCameraState(
+            'denied',
+            'camera permission revoked while active',
+            '카메라 권한이 실행 중에 차단되었습니다. 주소창 또는 사이트 설정에서 다시 허용한 뒤 시도해주세요.',
+            'ended',
+            'denied',
+          )
+          return
+        }
+
+        startTransition(() => {
+          setSnapshot((current) => ({
+            ...current,
+            permissionState: nextPermissionState,
+            ...(current.trackingState === 'denied' && nextPermissionState !== 'denied'
+              ? {
+                  trackingState: 'idle' as TrackingState,
+                  debugState: 'camera permission changed, ready to retry',
+                  errorMessage: null,
+                }
+              : {}),
+          }))
+        })
+      }
+
+      const supportsPermissionEventTarget =
+        typeof permissionStatus.addEventListener === 'function' &&
+        typeof permissionStatus.removeEventListener === 'function'
+
+      if (supportsPermissionEventTarget) {
+        permissionStatus.addEventListener('change', applyPermissionState)
+      } else {
+        permissionStatus.onchange = applyPermissionState
+      }
+      permissionCleanupRef.current = () => {
+        if (supportsPermissionEventTarget) {
+          permissionStatus.removeEventListener('change', applyPermissionState)
+        } else {
+          permissionStatus.onchange = null
+        }
+      }
+
+      applyPermissionState()
+      return normalizeCameraPermissionState(permissionStatus.state)
+    } catch (error) {
+      debugLog('permission query unavailable', {
+        error: error instanceof Error ? error.message : String(error),
+      })
+      startTransition(() => {
+        setSnapshot((current) => ({
+          ...current,
+          permissionState: 'unsupported',
+        }))
+      })
+      return 'unsupported' as CameraPermissionState
+    }
+  }, [clearPermissionSubscription, setTerminalCameraState])
+
+  const bindStreamLifecycle = useCallback((stream: MediaStream) => {
+    clearStreamSubscription()
+
+    const videoTrack = stream.getVideoTracks()[0]
+    if (!videoTrack) {
+      return
+    }
+
+    const handleEnded = () => {
+      if (!isMountedRef.current) {
+        return
+      }
+
+      setTerminalCameraState(
+        'interrupted',
+        'camera track ended',
+        '카메라 스트림이 종료되었습니다. 장치 연결과 브라우저 권한 상태를 확인한 뒤 다시 시도해주세요.',
+      )
+    }
+
+    const handleMute = () => {
+      if (!isMountedRef.current) {
+        return
+      }
+
+      debugLog('camera track muted')
+      startTransition(() => {
+        setSnapshot((current) => ({
+          ...current,
+          isCameraActive: false,
+          handDetected: false,
+          streamState: 'muted',
+          debugState: 'camera stream muted',
+        }))
+      })
+    }
+
+    const handleUnmute = () => {
+      if (!isMountedRef.current) {
+        return
+      }
+
+      debugLog('camera track unmuted')
+      startTransition(() => {
+        setSnapshot((current) => ({
+          ...current,
+          isCameraActive: true,
+          trackingState: 'ready',
+          streamState: 'live',
+          debugState: 'camera stream resumed',
+          errorMessage: null,
+        }))
+      })
+    }
+
+    const handleDeviceChange = () => {
+      if (!isMountedRef.current) {
+        return
+      }
+
+      const currentTrack = stream.getVideoTracks()[0]
+      debugLog('media devices changed', {
+        streamActive: stream.active,
+        readyState: currentTrack?.readyState ?? 'missing',
+      })
+
+      if (!stream.active || !currentTrack || currentTrack.readyState === 'ended') {
+        setTerminalCameraState(
+          'interrupted',
+          'camera device change interrupted active stream',
+          '카메라 장치가 변경되면서 현재 스트림이 중단되었습니다. 다시 연결해주세요.',
+        )
+        return
+      }
+
+      startTransition(() => {
+        setSnapshot((current) => ({
+          ...current,
+          debugState: 'media devices changed',
+        }))
+      })
+    }
+
+    videoTrack.addEventListener('ended', handleEnded)
+    videoTrack.addEventListener('mute', handleMute)
+    videoTrack.addEventListener('unmute', handleUnmute)
+    navigator.mediaDevices?.addEventListener?.('devicechange', handleDeviceChange)
+
+    streamCleanupRef.current = () => {
+      videoTrack.removeEventListener('ended', handleEnded)
+      videoTrack.removeEventListener('mute', handleMute)
+      videoTrack.removeEventListener('unmute', handleUnmute)
+      navigator.mediaDevices?.removeEventListener?.('devicechange', handleDeviceChange)
+    }
+  }, [clearStreamSubscription, setTerminalCameraState])
 
   const handleResults = useCallback((results: Results) => {
     const video = videoRef.current
@@ -281,6 +511,7 @@ export function useHandTracking(videoRef: RefObject<HTMLVideoElement | null>) {
       setSnapshot((current) => ({
         ...current,
         trackingState: 'ready',
+        streamState: 'live',
         isCameraActive: true,
         handDetected: true,
         gesture,
@@ -342,9 +573,20 @@ export function useHandTracking(videoRef: RefObject<HTMLVideoElement | null>) {
   const processVideoFrame = useCallback(async (timestamp: number) => {
     const video = videoRef.current
     const hands = handsRef.current
+    const stream = streamRef.current
+    const videoTrack = stream?.getVideoTracks()[0]
+
+    if (stream && (!stream.active || !videoTrack || videoTrack.readyState === 'ended')) {
+      setTerminalCameraState(
+        'interrupted',
+        'camera stream became inactive during processing',
+        '카메라 스트림이 더 이상 활성 상태가 아닙니다. 장치 연결과 권한 상태를 확인한 뒤 다시 시도해주세요.',
+      )
+      return false
+    }
 
     if (!video || !hands || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
-      return
+      return true
     }
 
     if (video.videoWidth === 0 || video.videoHeight === 0) {
@@ -360,11 +602,11 @@ export function useHandTracking(videoRef: RefObject<HTMLVideoElement | null>) {
           debugState: 'waiting for non-zero video resolution',
         }))
       })
-      return
+      return true
     }
 
     if (sendingRef.current || video.currentTime === lastVideoTimeRef.current) {
-      return
+      return true
     }
 
     sendingRef.current = true
@@ -393,7 +635,8 @@ export function useHandTracking(videoRef: RefObject<HTMLVideoElement | null>) {
     } finally {
       sendingRef.current = false
     }
-  }, [videoRef])
+    return true
+  }, [setTerminalCameraState, videoRef])
 
   const animationTick = useCallback(async (timestamp: number) => {
     if (!isMountedRef.current) {
@@ -401,7 +644,10 @@ export function useHandTracking(videoRef: RefObject<HTMLVideoElement | null>) {
     }
 
     try {
-      await processVideoFrame(timestamp)
+      const shouldContinue = await processVideoFrame(timestamp)
+      if (!shouldContinue || !isMountedRef.current) {
+        return
+      }
     } catch (error) {
       console.error('[hands] frame processing error', error)
       stopCamera()
@@ -442,6 +688,23 @@ export function useHandTracking(videoRef: RefObject<HTMLVideoElement | null>) {
 
     try {
       debugLog('camera start requested')
+      stopCamera()
+
+      const permissionState = await syncPermissionState()
+      if (permissionState === 'denied') {
+        startTransition(() => {
+          setSnapshot((current) => ({
+            ...current,
+            trackingState: 'denied',
+            permissionState: 'denied',
+            debugState: 'camera permission denied before request',
+            errorMessage:
+              '브라우저가 이 사이트의 카메라 권한을 다시 묻지 않을 수 있습니다. 주소창 또는 사이트 설정에서 허용한 뒤 다시 시도해주세요.',
+          }))
+        })
+        return
+      }
+
       startTransition(() => {
         setSnapshot((current) => ({
           ...current,
@@ -450,8 +713,6 @@ export function useHandTracking(videoRef: RefObject<HTMLVideoElement | null>) {
           errorMessage: null,
         }))
       })
-
-      stopCamera()
 
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: false,
@@ -463,6 +724,7 @@ export function useHandTracking(videoRef: RefObject<HTMLVideoElement | null>) {
       })
 
       streamRef.current = stream
+      bindStreamLifecycle(stream)
       video.srcObject = stream
       video.muted = true
       video.playsInline = true
@@ -495,6 +757,8 @@ export function useHandTracking(videoRef: RefObject<HTMLVideoElement | null>) {
         setSnapshot((current) => ({
           ...current,
           trackingState: 'ready',
+          permissionState: 'granted',
+          streamState: 'live',
           isCameraActive: true,
           videoResolution: {
             width: video.videoWidth,
@@ -507,8 +771,7 @@ export function useHandTracking(videoRef: RefObject<HTMLVideoElement | null>) {
 
       animationFrameRef.current = requestAnimationFrame(animationTick)
     } catch (error) {
-      const name = error instanceof DOMException ? error.name : ''
-      const denied = name === 'NotAllowedError' || name === 'PermissionDeniedError'
+      const cameraError = classifyCameraStartError(error)
       console.error('[hands] start failed', error)
 
       stopCamera()
@@ -516,25 +779,27 @@ export function useHandTracking(videoRef: RefObject<HTMLVideoElement | null>) {
         setSnapshot((current) => ({
           ...current,
           modelReady: handsRef.current !== null,
-          trackingState: denied ? 'denied' : 'error',
-          debugState: denied ? 'camera permission denied' : 'camera start failed',
-          errorMessage:
-            error instanceof Error ? error.message : '카메라를 시작하지 못했습니다.',
+          trackingState: cameraError.trackingState,
+          permissionState: cameraError.permissionState ?? current.permissionState,
+          debugState: cameraError.debugState,
+          errorMessage: cameraError.message,
         }))
       })
     }
-  }, [animationTick, ensureHands, stopCamera, videoRef])
+  }, [animationTick, bindStreamLifecycle, ensureHands, stopCamera, syncPermissionState, videoRef])
 
   useEffect(() => {
     isMountedRef.current = true
+    void syncPermissionState()
 
     return () => {
       isMountedRef.current = false
+      clearPermissionSubscription()
       stopCamera()
       void handsRef.current?.close()
       handsRef.current = null
     }
-  }, [stopCamera])
+  }, [clearPermissionSubscription, stopCamera, syncPermissionState])
 
   return {
     ...snapshot,

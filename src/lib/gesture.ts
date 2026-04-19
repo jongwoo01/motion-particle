@@ -1,4 +1,11 @@
-import type { GestureType, HandSignalFrame, LandmarkPoint, MotionMetrics } from '../types'
+import type {
+  FlowFocusFinger,
+  FlowFocusState,
+  GestureType,
+  HandSignalFrame,
+  LandmarkPoint,
+  MotionMetrics,
+} from '../types'
 
 const WRIST = 0
 const THUMB_CMC = 1
@@ -89,6 +96,16 @@ type ThumbMetrics = {
   palmDistanceScore: number
   reachScore: number
 }
+
+export interface SingleFingerFocus {
+  point: LandmarkPoint
+  finger: FlowFocusFinger
+  confidence: number
+}
+
+const SINGLE_FINGER_WINDOW = 5
+const SINGLE_FINGER_REQUIRED = 3
+const SINGLE_FINGER_HOLD_MS = 120
 
 function getPalmMetrics(landmarks: LandmarkPoint[]) {
   const wrist = landmarks[WRIST]
@@ -248,21 +265,21 @@ export function classifyGesture(frame: Pick<HandSignalFrame, 'landmarks' | 'hand
 
   const { landmarks } = frame
   const fingerStates = getFingerStates(frame)
+  const thumbMetrics = getThumbMetrics(frame)
   const extendedCount = Object.values(fingerStates).filter((finger) => finger.extended).length
-  const { palmWidth, palmCenter } = getPalmMetrics(landmarks)
+  const { palmWidth } = getPalmMetrics(landmarks)
   const thumbIndexDistance = distance(landmarks[THUMB_TIP], landmarks[INDEX_TIP])
   const topPairY = (landmarks[THUMB_TIP].y + landmarks[INDEX_TIP].y) / 2
   const otherFingersCurled =
     !fingerStates.middle.extended && !fingerStates.ring.extended && !fingerStates.pinky.extended
   const thumbIndexLifted = topPairY < landmarks[INDEX_MCP].y + palmWidth * 0.08
-  const thumbIndexReach =
-    distance(landmarks[THUMB_TIP], palmCenter) + distance(landmarks[INDEX_TIP], palmCenter)
 
   if (
-    thumbIndexDistance < palmWidth * 0.4 &&
+    thumbIndexDistance < palmWidth * 0.32 &&
     thumbIndexLifted &&
     otherFingersCurled &&
-    thumbIndexReach > palmWidth * 0.64
+    thumbMetrics.outwardScore > 0.22 &&
+    fingerStates.index.score > 0.34
   ) {
     return 'heart'
   }
@@ -349,6 +366,165 @@ export function countExtendedFingers(frame: Pick<HandSignalFrame, 'landmarks' | 
   return clamp(extendedCount, 0, 5)
 }
 
+export function getSingleFingerFocus(
+  frame: Pick<HandSignalFrame, 'landmarks' | 'handedness'>,
+) {
+  if (frame.landmarks.length < 21) {
+    return null
+  }
+
+  const fingerStates = getFingerStates(frame)
+  const thumbMetrics = getThumbMetrics(frame)
+  const thumbCounted =
+    thumbMetrics.score > 0.72 &&
+    thumbMetrics.reachScore > 0.58 &&
+    thumbMetrics.outwardScore > 0.45 &&
+    thumbMetrics.palmDistanceScore > 0.18
+
+  const activeFingers = [
+    {
+      active: thumbCounted,
+      score: thumbMetrics.score,
+      finger: 'thumb' as const,
+      point: frame.landmarks[THUMB_TIP],
+    },
+    {
+      active: fingerStates.index.extended,
+      score: fingerStates.index.score,
+      finger: 'index' as const,
+      point: frame.landmarks[INDEX_TIP],
+    },
+    {
+      active: fingerStates.middle.extended,
+      score: fingerStates.middle.score,
+      finger: 'middle' as const,
+      point: frame.landmarks[MIDDLE_TIP],
+    },
+    {
+      active: fingerStates.ring.extended,
+      score: fingerStates.ring.score,
+      finger: 'ring' as const,
+      point: frame.landmarks[RING_TIP],
+    },
+    {
+      active: fingerStates.pinky.extended,
+      score: fingerStates.pinky.score,
+      finger: 'pinky' as const,
+      point: frame.landmarks[PINKY_TIP],
+    },
+  ]
+  const activeFingerList = activeFingers.filter((finger) => finger.active)
+
+  if (activeFingerList.length !== 1) {
+    return null
+  }
+
+  const primaryFinger = activeFingerList[0]
+  const competingScore = Math.max(
+    0,
+    ...activeFingers
+      .filter((finger) => finger !== primaryFinger)
+      .map((finger) => finger.score),
+  )
+
+  return {
+    point: { ...primaryFinger.point },
+    finger: primaryFinger.finger,
+    confidence: clamp(primaryFinger.score * 0.82 + (1 - competingScore) * 0.18, 0, 1),
+  } satisfies SingleFingerFocus
+}
+
+export class SingleFingerFocusTracker {
+  private history: boolean[] = []
+  private smoothedPoint: LandmarkPoint | null = null
+  private stableFocus: SingleFingerFocus | null = null
+  private lastValidTimestamp: number | null = null
+
+  reset() {
+    this.history = []
+    this.smoothedPoint = null
+    this.stableFocus = null
+    this.lastValidTimestamp = null
+  }
+
+  update(
+    frame: Pick<HandSignalFrame, 'landmarks' | 'handedness'> | null,
+    timestamp: number,
+  ): SingleFingerFocus | null {
+    const candidate = frame ? getSingleFingerFocus(frame) : null
+    this.history.push(candidate !== null)
+
+    if (this.history.length > SINGLE_FINGER_WINDOW) {
+      this.history.shift()
+    }
+
+    const validCount = this.history.filter(Boolean).length
+
+    if (candidate) {
+      if (!this.smoothedPoint) {
+        this.smoothedPoint = { ...candidate.point }
+      } else {
+        this.smoothedPoint.x += (candidate.point.x - this.smoothedPoint.x) * 0.42
+        this.smoothedPoint.y += (candidate.point.y - this.smoothedPoint.y) * 0.42
+        this.smoothedPoint.z += (candidate.point.z - this.smoothedPoint.z) * 0.42
+      }
+
+      this.lastValidTimestamp = timestamp
+
+      const nextFocus: SingleFingerFocus = {
+        point: this.smoothedPoint ? { ...this.smoothedPoint } : { ...candidate.point },
+        finger: candidate.finger,
+        confidence: candidate.confidence,
+      }
+
+      if (validCount >= SINGLE_FINGER_REQUIRED || this.stableFocus) {
+        this.stableFocus = nextFocus
+        return nextFocus
+      }
+
+      return null
+    }
+
+    const withinHold =
+      this.stableFocus !== null &&
+      this.lastValidTimestamp !== null &&
+      timestamp - this.lastValidTimestamp <= SINGLE_FINGER_HOLD_MS
+
+    if (withinHold && this.stableFocus) {
+      const holdFade = 1 - (timestamp - this.lastValidTimestamp!) / SINGLE_FINGER_HOLD_MS
+      return {
+        ...this.stableFocus,
+        point: this.smoothedPoint ? { ...this.smoothedPoint } : { ...this.stableFocus.point },
+        confidence: clamp(this.stableFocus.confidence * (0.72 + holdFade * 0.28), 0.32, 1),
+      }
+    }
+
+    this.stableFocus = null
+    this.smoothedPoint = null
+    return null
+  }
+}
+
+export function createFlowFocusState(focus: SingleFingerFocus | null): FlowFocusState | null {
+  if (!focus) {
+    return null
+  }
+
+  const fingerRadiusBoost =
+    focus.finger === 'thumb' || focus.finger === 'pinky' ? 0.03 : focus.finger === 'middle' ? 0.02 : 0
+  const fingerShimmerBoost = focus.finger === 'index' ? 0.08 : 0.03
+
+  return {
+    x: (focus.point.x - 0.5) * 2,
+    y: (0.5 - focus.point.y) * 2,
+    intensity: clamp(0.82 + focus.confidence * 0.32, 0.82, 1.12),
+    confidence: focus.confidence,
+    radius: 0.3 + focus.confidence * 0.16 + fingerRadiusBoost,
+    shimmer: clamp(0.48 + focus.confidence * 0.34 + fingerShimmerBoost, 0.48, 1),
+    finger: focus.finger,
+  }
+}
+
 export function smoothFingerCountHistory(history: number[], previousCount: number) {
   if (history.length === 0) {
     return previousCount
@@ -383,7 +559,7 @@ export class GestureSmoother {
   private readonly history: GestureType[] = []
   private stableGesture: GestureType = 'none'
 
-  constructor(windowSize = 8) {
+  constructor(windowSize = 6) {
     this.windowSize = windowSize
   }
 
@@ -411,7 +587,17 @@ export class GestureSmoother {
     }
 
     const dominance = totalWeight === 0 ? 0 : bestScore / totalWeight
-    if (dominance < 0.42 && this.stableGesture !== 'none') {
+
+    if (dominance < 0.38 && this.stableGesture !== 'none') {
+      // Allow switching if a new non-none gesture clearly overtakes the current one
+      if (
+        bestGesture !== 'none' &&
+        bestGesture !== this.stableGesture &&
+        bestScore > (scores.get(this.stableGesture) ?? 0) * 1.4
+      ) {
+        this.stableGesture = bestGesture
+        return bestGesture
+      }
       return this.stableGesture
     }
 

@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import type { HandSignalFrame, LandmarkPoint } from '../types'
 import {
+  SingleFingerFocusTracker,
+  createFlowFocusState,
   GestureSmoother,
   classifyGesture,
   classifyGroupGesture,
   countExtendedFingers,
   computeMotionMetrics,
+  getSingleFingerFocus,
   smoothFingerCountHistory,
 } from './gesture'
 
@@ -163,15 +166,15 @@ describe('classifyGesture', () => {
 
   it('detects a one-hand heart', () => {
     const frame = buildFrame({
-      thumb: 'closed',
-      index: 'closed',
+      thumb: 'open',
+      index: 'open',
       middle: 'closed',
       ring: 'closed',
       pinky: 'closed',
     })
 
-    frame.landmarks[4] = { x: 0.38, y: 0.55, z: 0 }
-    frame.landmarks[8] = { x: 0.4, y: 0.56, z: 0 }
+    frame.landmarks[4] = { x: 0.19, y: 0.29, z: 0 }
+    frame.landmarks[8] = { x: 0.28, y: 0.3, z: 0 }
 
     expect(classifyGesture(frame)).toBe('heart')
   })
@@ -322,6 +325,48 @@ describe('countExtendedFingers', () => {
   })
 })
 
+describe('getSingleFingerFocus', () => {
+  it('returns the index fingertip metadata for a standard one gesture', () => {
+    const frame = buildFrame({
+      thumb: 'closed',
+      index: 'open',
+      middle: 'closed',
+      ring: 'closed',
+      pinky: 'closed',
+    })
+
+    expect(getSingleFingerFocus(frame)).toEqual({
+      point: frame.landmarks[8],
+      finger: 'index',
+      confidence: expect.any(Number),
+    })
+  })
+
+  it('returns null when multiple fingers are extended', () => {
+    const frame = buildFrame({
+      thumb: 'closed',
+      index: 'open',
+      middle: 'open',
+      ring: 'closed',
+      pinky: 'closed',
+    })
+
+    expect(getSingleFingerFocus(frame)).toBeNull()
+  })
+
+  it('returns a high confidence score for a clean single finger pose', () => {
+    const frame = buildFrame({
+      thumb: 'closed',
+      index: 'open',
+      middle: 'closed',
+      ring: 'closed',
+      pinky: 'closed',
+    })
+
+    expect(getSingleFingerFocus(frame)?.confidence).toBeGreaterThan(0.75)
+  })
+})
+
 describe('GestureSmoother', () => {
   it('holds a gesture through brief flicker', () => {
     const smoother = new GestureSmoother(8)
@@ -336,6 +381,85 @@ describe('GestureSmoother', () => {
 
     const outputs = sequence.map((gesture) => smoother.update(gesture))
     expect(outputs.at(-1)).toBe('open_palm')
+  })
+})
+
+describe('SingleFingerFocusTracker', () => {
+  it('activates only after 3 valid frames in a 5-frame window', () => {
+    const tracker = new SingleFingerFocusTracker()
+    const frame = buildFrame({
+      thumb: 'closed',
+      index: 'open',
+      middle: 'closed',
+      ring: 'closed',
+      pinky: 'closed',
+    })
+
+    expect(tracker.update(frame, 1000)).toBeNull()
+    expect(tracker.update(frame, 1033)).toBeNull()
+    expect(tracker.update(frame, 1066)?.finger).toBe('index')
+  })
+
+  it('holds the last stable focus through a brief invalid frame', () => {
+    const tracker = new SingleFingerFocusTracker()
+    const validFrame = buildFrame({
+      thumb: 'closed',
+      index: 'open',
+      middle: 'closed',
+      ring: 'closed',
+      pinky: 'closed',
+    })
+    const invalidFrame = buildFrame({
+      thumb: 'closed',
+      index: 'open',
+      middle: 'open',
+      ring: 'closed',
+      pinky: 'closed',
+    })
+
+    tracker.update(validFrame, 1000)
+    tracker.update(validFrame, 1033)
+    const stable = tracker.update(validFrame, 1066)
+    const held = tracker.update(invalidFrame, 1116)
+
+    expect(stable?.finger).toBe('index')
+    expect(held?.finger).toBe('index')
+    expect(held?.confidence ?? 0).toBeGreaterThan(0.3)
+  })
+
+  it('drops focus after the hold window expires', () => {
+    const tracker = new SingleFingerFocusTracker()
+    const validFrame = buildFrame({
+      thumb: 'closed',
+      index: 'open',
+      middle: 'closed',
+      ring: 'closed',
+      pinky: 'closed',
+    })
+
+    tracker.update(validFrame, 1000)
+    tracker.update(validFrame, 1033)
+    tracker.update(validFrame, 1066)
+
+    expect(tracker.update(null, 1210)).toBeNull()
+  })
+})
+
+describe('createFlowFocusState', () => {
+  it('maps a tracked finger into a render-ready flow focus state', () => {
+    const focusState = createFlowFocusState({
+      point: { x: 0.62, y: 0.31, z: 0.02 },
+      finger: 'index',
+      confidence: 0.88,
+    })
+
+    expect(focusState?.x).toBeCloseTo(0.24, 5)
+    expect(focusState?.y).toBeCloseTo(0.38, 5)
+    expect(focusState?.intensity ?? 0).toBeGreaterThan(0.9)
+    expect(focusState?.confidence).toBe(0.88)
+    expect(focusState?.radius ?? 0).toBeGreaterThan(0.4)
+    expect(focusState?.shimmer ?? 0).toBeGreaterThan(0.7)
+    expect(focusState?.finger).toBe('index')
   })
 })
 

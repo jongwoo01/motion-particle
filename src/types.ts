@@ -3,8 +3,18 @@ export type TrackingState =
   | 'requesting_permission'
   | 'ready'
   | 'denied'
+  | 'interrupted'
   | 'unsupported'
   | 'error'
+
+export type CameraPermissionState =
+  | 'unknown'
+  | 'prompt'
+  | 'granted'
+  | 'denied'
+  | 'unsupported'
+
+export type CameraStreamState = 'inactive' | 'live' | 'muted' | 'ended'
 
 export type GestureType = 'open_palm' | 'fist' | 'victory' | 'heart' | 'none'
 export type InteractionMode = 'flow' | 'count'
@@ -13,6 +23,19 @@ export interface LandmarkPoint {
   x: number
   y: number
   z: number
+}
+
+
+export type FlowFocusFinger = 'thumb' | 'index' | 'middle' | 'ring' | 'pinky'
+
+export interface FlowFocusState {
+  x: number
+  y: number
+  intensity: number
+  confidence: number
+  radius: number
+  shimmer: number
+  finger: FlowFocusFinger
 }
 
 export interface HandSignalFrame {
@@ -50,6 +73,8 @@ export interface ParticleControllerState extends ParticlePreset {
   anchor: { x: number; y: number }
   mode: InteractionMode
   countValue: number
+  badgeCount: number
+  rigidity: number
   energy: number
   swirl: number
   bloom: number
@@ -61,6 +86,8 @@ export interface ParticleControllerState extends ParticlePreset {
 
 export interface HandTrackingSnapshot {
   trackingState: TrackingState
+  permissionState: CameraPermissionState
+  streamState: CameraStreamState
   modelReady: boolean
   isCameraActive: boolean
   handDetected: boolean

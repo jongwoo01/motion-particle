@@ -1,4 +1,10 @@
-import type { GestureType, InteractionMode, TrackingState } from '../types'
+import type {
+  CameraPermissionState,
+  CameraStreamState,
+  GestureType,
+  InteractionMode,
+  TrackingState,
+} from '../types'
 import './StatusHud.css'
 
 function toTrackingLabel(trackingState: TrackingState) {
@@ -11,12 +17,44 @@ function toTrackingLabel(trackingState: TrackingState) {
       return '준비 완료'
     case 'denied':
       return '권한 차단'
+    case 'interrupted':
+      return '연결 끊김'
     case 'unsupported':
       return '지원 안 됨'
     case 'error':
       return '오류'
     default:
       return '알 수 없음'
+  }
+}
+
+function toPermissionLabel(permissionState: CameraPermissionState) {
+  switch (permissionState) {
+    case 'granted':
+      return '권한 허용'
+    case 'prompt':
+      return '권한 대기'
+    case 'denied':
+      return '권한 차단'
+    case 'unsupported':
+      return '권한 조회 미지원'
+    case 'unknown':
+    default:
+      return '권한 미확인'
+  }
+}
+
+function toStreamLabel(streamState: CameraStreamState) {
+  switch (streamState) {
+    case 'live':
+      return '스트림 정상'
+    case 'muted':
+      return '스트림 일시 중단'
+    case 'ended':
+      return '스트림 종료'
+    case 'inactive':
+    default:
+      return '스트림 없음'
   }
 }
 
@@ -46,6 +84,8 @@ function toFieldLabel(energy: number, swirl: number) {
 interface StatusHudProps {
   modelReady: boolean
   trackingState: TrackingState
+  permissionState: CameraPermissionState
+  streamState: CameraStreamState
   isCameraActive: boolean
   handDetected: boolean
   gesture: GestureType
@@ -89,7 +129,7 @@ export function StatusHud(props: StatusHudProps) {
         </div>
       </div>
       <p className="status-hud__meta">
-        {props.mode === 'count' ? 'Count mode' : `Flow mode · intensity ${intensity}`} · {props.modelReady ? 'Model loaded' : 'Model loading'} · {toTrackingLabel(props.trackingState)} · {props.videoResolution.width}×{props.videoResolution.height}
+        {props.mode === 'count' ? 'Count mode' : `Flow mode · intensity ${intensity}`} · {props.modelReady ? 'Model loaded' : 'Model loading'} · {toTrackingLabel(props.trackingState)} · {toPermissionLabel(props.permissionState)} · {toStreamLabel(props.streamState)} · {props.videoResolution.width}×{props.videoResolution.height}
       </p>
     </section>
   )

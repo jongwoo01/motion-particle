@@ -1,16 +1,19 @@
-import { useDeferredValue, useMemo, useRef, useState } from 'react'
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 import { HandOverlay } from './components/HandOverlay'
 import { ParticleScene } from './components/ParticleScene'
 import { StatusHud } from './components/StatusHud'
+import { SingleFingerFocusTracker, createFlowFocusState } from './lib/gesture'
 import { useHandTracking } from './hooks/useHandTracking'
 import { resolveParticleControllerState } from './lib/particleController'
-import type { InteractionMode } from './types'
+import type { FlowFocusState, InteractionMode } from './types'
 
 function App() {
   const videoRef = useRef<HTMLVideoElement>(null)
   const tracking = useHandTracking(videoRef)
   const [mode, setMode] = useState<InteractionMode>('flow')
+  const [flowFocus, setFlowFocus] = useState<FlowFocusState | null>(null)
+  const flowFocusTrackerRef = useRef(new SingleFingerFocusTracker())
 
   const controllerState = useMemo(
     () =>
@@ -28,13 +31,42 @@ function App() {
 
   const deferredControllerState = useDeferredValue(controllerState)
 
+  useEffect(() => {
+    if (mode !== 'flow') {
+      flowFocusTrackerRef.current.reset()
+    }
+  }, [mode])
+
+  useEffect(() => {
+    if (mode !== 'flow') {
+      return
+    }
+
+    const timestamp = tracking.lastDetectionTimestamp ?? 0
+
+    if (!tracking.handDetected || tracking.landmarks.length < 21) {
+      setFlowFocus(createFlowFocusState(flowFocusTrackerRef.current.update(null, timestamp)))
+      return
+    }
+
+    const focus = flowFocusTrackerRef.current.update(
+      {
+        landmarks: tracking.landmarks,
+        handedness: 'Unknown',
+      },
+      timestamp,
+    )
+
+    setFlowFocus(createFlowFocusState(focus))
+  }, [mode, tracking.handDetected, tracking.landmarks, tracking.lastDetectionTimestamp])
+
   const overlayCopy = useMemo(() => {
     switch (tracking.trackingState) {
       case 'idle':
         return {
-          eyebrow: 'Realtime Installation Demo',
-          title: '손의 움직임으로 입자 흐름을 조율하세요',
-          body: '카메라를 켜면 손의 형태와 움직임이 공간의 결을 바꿉니다.',
+          eyebrow: 'Interactive Experience',
+          title: '손을 들어 이 우주를 빚어보세요',
+          body: '카메라가 켜지는 순간, 당신의 손이 이 공간의 유일한 물리법칙이 됩니다.',
           action: '카메라 시작',
         }
       case 'requesting_permission':
@@ -48,8 +80,17 @@ function App() {
         return {
           eyebrow: '권한 필요',
           title: '카메라 접근이 차단되었습니다',
-          body: '브라우저 주소창의 카메라 권한을 허용한 뒤 다시 시도해주세요. 권한이 막혀 있으면 손 추적을 시작할 수 없습니다.',
+          body: '브라우저는 차단 후 자동으로 다시 묻지 않을 수 있습니다. 주소창 또는 사이트 설정에서 카메라 권한을 허용한 뒤 다시 시도해주세요.',
           action: '다시 시도',
+        }
+      case 'interrupted':
+        return {
+          eyebrow: '카메라 연결 끊김',
+          title: '실행 중이던 카메라 스트림이 중단되었습니다',
+          body:
+            tracking.errorMessage ??
+            '장치 분리, 브라우저 권한 변경, 다른 앱의 점유 여부를 확인한 뒤 다시 연결해주세요.',
+          action: '다시 연결',
         }
       case 'unsupported':
         return {
@@ -83,7 +124,7 @@ function App() {
         playsInline
       />
 
-      <ParticleScene controllerState={deferredControllerState} />
+      <ParticleScene controllerState={deferredControllerState} flowFocus={mode === 'flow' ? flowFocus : null} />
       <HandOverlay
         hands={tracking.hands}
         rawDetectionCount={tracking.rawDetectionCount}
@@ -91,15 +132,15 @@ function App() {
 
       <section className="scene-overlay">
         <header className="title-lockup">
-          <p className="title-lockup__kicker">Motion Hand Garden</p>
+          <p className="title-lockup__kicker">Palm Universe</p>
           <h1>
-            <span>손의 움직임이</span>
-            <span>입자 흐름을 바꿉니다</span>
+            <span>손끝에서</span>
+            <span>우주가 시작됩니다</span>
           </h1>
           <p className="title-lockup__body">
             {mode === 'count'
-              ? `양손 손가락 수를 합산해 ${tracking.fingerCount} 숫자로 응집합니다.`
-              : '천천히 감으면 와류가 생기고, 빠르게 밀면 충격파가 퍼집니다. 손을 펼치면 개화하고, 모으면 응축됩니다.'}
+              ? `지금 이 우주의 밀도는 ${tracking.fingerCount}입니다.`
+              : '이 공간의 물리는 오직 당신 손만이 압니다.'}
           </p>
         </header>
 
@@ -107,6 +148,8 @@ function App() {
           <StatusHud
             modelReady={tracking.modelReady}
             trackingState={tracking.trackingState}
+            permissionState={tracking.permissionState}
+            streamState={tracking.streamState}
             isCameraActive={tracking.isCameraActive}
             handDetected={tracking.handDetected}
             gesture={tracking.gesture}
