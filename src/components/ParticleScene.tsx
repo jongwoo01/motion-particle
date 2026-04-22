@@ -16,6 +16,7 @@ import {
   MAX_BADGES,
   createBadgeClusterTemplate,
   createBalancedBadgeLayout,
+  createCountdownBurstTargetField,
   createNumberTargetFieldSet,
   createTargetFields,
 } from '../lib/particleTargets'
@@ -210,6 +211,7 @@ function ParticleField({ controllerState }: ParticleSceneProps) {
   const badgeScales = useMemo(() => createBadgeScaleBuffer(BADGE_POINT_COUNT), [])
   const targetFields = useMemo(() => createTargetFields(MAX_PARTICLES), [])
   const numberTargets = useMemo(() => createNumberTargetFieldSet(MAX_PARTICLES), [])
+  const countdownBurstField = useMemo(() => createCountdownBurstTargetField(MAX_PARTICLES), [])
   const badgeTemplate = useMemo(() => createBadgeClusterTemplate(), [])
   const badgeLayouts = useMemo(
     () =>
@@ -240,16 +242,21 @@ function ParticleField({ controllerState }: ParticleSceneProps) {
     heart: 0,
   })
   const countModeMixRef = useRef(0)
+  const countdownModeMixRef = useRef(0)
   const velocitiesRef = useRef(new Float32Array(MAX_PARTICLES * 3))
   const badgeVelocitiesRef = useRef(new Float32Array(BADGE_POINT_COUNT * 3))
   const gestureEventRef = useRef(0)
   const shockwaveRef = useRef(0)
+  const countdownBurstMixRef = useRef(controllerState.countdownBurst ? 1 : 0)
   const badgeRevealRef = useRef(0)
   const previousGestureRef = useRef(controllerState.gesture)
   const previousEventPulseRef = useRef(0)
   const previousTravelRef = useRef(controllerState.travel)
   const travelBurstRef = useRef(0)
-  const previousBadgeCountRef = useRef(controllerState.badgeCount)
+  const previousCountBadgeCountRef = useRef(controllerState.mode === 'count' ? controllerState.badgeCount : 0)
+  const previousCountdownBadgeCountRef = useRef(
+    controllerState.mode === 'countdown' ? controllerState.badgeCount : 0,
+  )
   const fistChargeRef = useRef(0)
   const trailRef = useRef<TrailNode[]>(
     Array.from({ length: TRAIL_NODES }, () => ({ x: 0, y: 0, strength: 0 })),
@@ -308,28 +315,71 @@ function ParticleField({ controllerState }: ParticleSceneProps) {
       controllerState.mode === 'flow' &&
       controllerState.handDetected &&
       controllerState.gesture === 'fist'
+    const countInputActive = controllerState.mode === 'count'
+    const countdownInputActive = controllerState.mode === 'countdown'
+    const numberInputActive = countInputActive || countdownInputActive
 
     const current = currentStateRef.current
-    current.count = MathUtils.lerp(current.count, controllerState.count, fistInputActive ? 0.16 : 0.05)
-    current.size = MathUtils.lerp(current.size, controllerState.size, fistInputActive ? 0.16 : 0.06)
-    current.velocity = MathUtils.lerp(current.velocity, controllerState.velocity, fistInputActive ? 0.18 : 0.05)
-    current.spread = MathUtils.lerp(current.spread, controllerState.spread, fistInputActive ? 0.22 : 0.05)
-    current.attraction = MathUtils.lerp(current.attraction, controllerState.attraction, fistInputActive ? 0.22 : 0.06)
-    current.hueShift = MathUtils.lerp(current.hueShift, controllerState.hueShift, 0.05)
-    current.noiseStrength = MathUtils.lerp(current.noiseStrength, controllerState.noiseStrength, fistInputActive ? 0.2 : 0.05)
-    current.brightness = MathUtils.lerp(current.brightness, controllerState.brightness, fistInputActive ? 0.16 : 0.05)
-    current.rigidity = MathUtils.lerp(current.rigidity, controllerState.rigidity, fistInputActive ? 0.24 : 0.08)
-    current.energy = MathUtils.lerp(current.energy, controllerState.energy, fistInputActive ? 0.2 : 0.12)
-    current.swirl = MathUtils.lerp(current.swirl, controllerState.swirl, fistInputActive ? 0.22 : 0.08)
-    current.bloom = MathUtils.lerp(current.bloom, controllerState.bloom, fistInputActive ? 0.22 : 0.08)
-    current.compression = MathUtils.lerp(current.compression, controllerState.compression, fistInputActive ? 0.24 : 0.08)
-    current.pinch = MathUtils.lerp(current.pinch, controllerState.pinch, fistInputActive ? 0.16 : 0.08)
-    current.eventPulse = MathUtils.lerp(current.eventPulse, controllerState.eventPulse, fistInputActive ? 0.24 : 0.12)
-    current.travel = MathUtils.lerp(current.travel, controllerState.travel, fistInputActive ? 0.08 : 0.16)
-    current.anchor.x = MathUtils.lerp(current.anchor.x, controllerState.anchor.x, fistInputActive ? 0.12 : 0.05)
-    current.anchor.y = MathUtils.lerp(current.anchor.y, controllerState.anchor.y, fistInputActive ? 0.12 : 0.05)
-    current.drift.x = MathUtils.lerp(current.drift.x, controllerState.drift.x, fistInputActive ? 0.14 : 0.05)
-    current.drift.y = MathUtils.lerp(current.drift.y, controllerState.drift.y, fistInputActive ? 0.14 : 0.05)
+    current.count = MathUtils.lerp(
+      current.count,
+      controllerState.count,
+      numberInputActive ? 0.2 : fistInputActive ? 0.16 : 0.05,
+    )
+    current.size = MathUtils.lerp(
+      current.size,
+      controllerState.size,
+      numberInputActive ? 0.16 : fistInputActive ? 0.16 : 0.06,
+    )
+    current.velocity = MathUtils.lerp(
+      current.velocity,
+      controllerState.velocity,
+      numberInputActive ? 0.18 : fistInputActive ? 0.18 : 0.05,
+    )
+    current.spread = MathUtils.lerp(
+      current.spread,
+      controllerState.spread,
+      numberInputActive ? 0.22 : fistInputActive ? 0.22 : 0.05,
+    )
+    current.attraction = MathUtils.lerp(
+      current.attraction,
+      controllerState.attraction,
+      numberInputActive ? 0.2 : fistInputActive ? 0.22 : 0.06,
+    )
+    current.hueShift = MathUtils.lerp(current.hueShift, controllerState.hueShift, numberInputActive ? 0.12 : 0.05)
+    current.noiseStrength = MathUtils.lerp(
+      current.noiseStrength,
+      controllerState.noiseStrength,
+      numberInputActive ? 0.16 : fistInputActive ? 0.2 : 0.05,
+    )
+    current.brightness = MathUtils.lerp(
+      current.brightness,
+      controllerState.brightness,
+      numberInputActive ? 0.16 : fistInputActive ? 0.16 : 0.05,
+    )
+    current.rigidity = MathUtils.lerp(
+      current.rigidity,
+      controllerState.rigidity,
+      numberInputActive ? 0.22 : fistInputActive ? 0.24 : 0.08,
+    )
+    current.energy = MathUtils.lerp(current.energy, controllerState.energy, numberInputActive ? 0.18 : fistInputActive ? 0.2 : 0.12)
+    current.swirl = MathUtils.lerp(current.swirl, controllerState.swirl, numberInputActive ? 0.18 : fistInputActive ? 0.22 : 0.08)
+    current.bloom = MathUtils.lerp(current.bloom, controllerState.bloom, numberInputActive ? 0.18 : fistInputActive ? 0.22 : 0.08)
+    current.compression = MathUtils.lerp(
+      current.compression,
+      controllerState.compression,
+      numberInputActive ? 0.18 : fistInputActive ? 0.24 : 0.08,
+    )
+    current.pinch = MathUtils.lerp(current.pinch, controllerState.pinch, numberInputActive ? 0.18 : fistInputActive ? 0.16 : 0.08)
+    current.eventPulse = MathUtils.lerp(
+      current.eventPulse,
+      controllerState.eventPulse,
+      numberInputActive ? 0.18 : fistInputActive ? 0.24 : 0.12,
+    )
+    current.travel = MathUtils.lerp(current.travel, controllerState.travel, numberInputActive ? 0.22 : fistInputActive ? 0.08 : 0.16)
+    current.anchor.x = MathUtils.lerp(current.anchor.x, controllerState.anchor.x, numberInputActive ? 0.12 : fistInputActive ? 0.12 : 0.05)
+    current.anchor.y = MathUtils.lerp(current.anchor.y, controllerState.anchor.y, numberInputActive ? 0.12 : fistInputActive ? 0.12 : 0.05)
+    current.drift.x = MathUtils.lerp(current.drift.x, controllerState.drift.x, numberInputActive ? 0.12 : fistInputActive ? 0.14 : 0.05)
+    current.drift.y = MathUtils.lerp(current.drift.y, controllerState.drift.y, numberInputActive ? 0.12 : fistInputActive ? 0.14 : 0.05)
     current.gesture = controllerState.gesture
     current.handDetected = controllerState.handDetected
     current.mode = controllerState.mode
@@ -343,27 +393,60 @@ function ParticleField({ controllerState }: ParticleSceneProps) {
     const targetFist = controllerState.gesture === 'fist' ? 1 : 0
     const targetVictory = controllerState.gesture === 'victory' ? 1 : 0
     const targetHeart = controllerState.gesture === 'heart' ? 1 : 0
+    const countModeActive = countInputActive
+    const countdownModeActive = countdownInputActive
+    countdownBurstMixRef.current = MathUtils.damp(
+      countdownBurstMixRef.current,
+      controllerState.countdownBurst ? 1 : 0,
+      controllerState.countdownBurst ? 6.8 : 5.4,
+      delta,
+    )
+    const countdownBurstMix = countdownBurstMixRef.current
     countModeMixRef.current = MathUtils.damp(
       countModeMixRef.current,
-      controllerState.mode === 'count' ? 1 : 0,
-      4.4,
+      countModeActive ? 1 : 0,
+      countModeActive ? 8.8 : 4.4,
+      delta,
+    )
+    countdownModeMixRef.current = MathUtils.damp(
+      countdownModeMixRef.current,
+      countdownModeActive ? 1 : 0,
+      countdownModeActive ? 8.8 : 4.4,
       delta,
     )
     const countModeMix = countModeMixRef.current
+    const countdownModeMix = countdownModeMixRef.current
+    const countdownNumberMix = countdownModeMix * (1 - countdownBurstMix)
+    const numberModeMix = MathUtils.clamp(countModeMix + countdownNumberMix, 0, 1)
     const countField = numberTargets.fields[controllerState.countValue] ?? numberTargets.fields[0]
     const countBounds = numberTargets.bounds[controllerState.countValue] ?? numberTargets.bounds[0]
-    const flowModeMix = 1 - countModeMix
-    const badgeCount = controllerState.mode === 'count' ? controllerState.badgeCount : 0
+    const countdownField = numberTargets.fields[controllerState.countValue] ?? numberTargets.fields[0]
+    const countdownBounds = numberTargets.bounds[controllerState.countValue] ?? numberTargets.bounds[0]
+    const flowModeMix = 1 - numberModeMix
+    const badgeCount = countModeActive
+      ? controllerState.badgeCount
+      : countdownModeActive
+        ? controllerState.countdownBurst ? 0 : controllerState.badgeCount
+        : 0
 
-    if (controllerState.mode === 'count' && badgeCount !== previousBadgeCountRef.current) {
+    if (countModeActive && badgeCount !== previousCountBadgeCountRef.current) {
       badgeRevealRef.current = 0
     }
 
-    previousBadgeCountRef.current = badgeCount
+    if (countdownModeActive && badgeCount !== previousCountdownBadgeCountRef.current) {
+      badgeRevealRef.current = 0
+    }
+
+    previousCountBadgeCountRef.current = countModeActive ? badgeCount : 0
+    previousCountdownBadgeCountRef.current = countdownModeActive ? badgeCount : 0
     badgeRevealRef.current = MathUtils.damp(
       badgeRevealRef.current,
-      controllerState.mode === 'count' && badgeCount > 0 ? 1 : 0,
-      controllerState.mode === 'count' ? 6.4 : 4.2,
+      countModeActive
+        ? badgeCount > 0 ? 1 : 0
+        : countdownModeActive
+          ? controllerState.countdownBurst ? 0 : badgeCount > 0 ? 1 : 0
+          : 0,
+      countModeActive ? 12 : countdownModeActive ? 12 : 4.2,
       delta,
     )
     const badgeReveal = badgeRevealRef.current
@@ -420,6 +503,8 @@ function ParticleField({ controllerState }: ParticleSceneProps) {
       ? MathUtils.clamp(mixes.fist * 1.15 + current.rigidity * 0.35, 0, 1)
       : 0
     const countRigidityMix = current.rigidity * countModeMix
+    const countdownRigidityMix = current.rigidity * countdownModeMix
+    const numberRigidityMix = countRigidityMix + countdownRigidityMix
     const gestureDominance = Math.max(
       neutralMix,
       mixes.openPalm,
@@ -537,9 +622,17 @@ function ParticleField({ controllerState }: ParticleSceneProps) {
       current.velocity * 0.22 * flowModeMix * (1 - fistModeMix),
     )
     colorSettings.hueBase = MathUtils.lerp(colorSettings.hueBase, 0.08, countModeMix * 0.72)
+    colorSettings.hueBase = MathUtils.lerp(colorSettings.hueBase, 0.08, countdownModeMix * 0.72)
+    colorSettings.hueBase = MathUtils.lerp(colorSettings.hueBase, 0.96, countdownBurstMix * 0.42)
     colorSettings.hueRange = MathUtils.lerp(colorSettings.hueRange, 0.02, countModeMix)
+    colorSettings.hueRange = MathUtils.lerp(colorSettings.hueRange, 0.02, countdownModeMix)
+    colorSettings.hueRange = MathUtils.lerp(colorSettings.hueRange, 0.24, countdownBurstMix)
     colorSettings.saturation = MathUtils.lerp(colorSettings.saturation, 0.14, countModeMix)
+    colorSettings.saturation = MathUtils.lerp(colorSettings.saturation, 0.14, countdownModeMix)
+    colorSettings.saturation = MathUtils.lerp(colorSettings.saturation, 0.88, countdownBurstMix)
     colorSettings.lightness = MathUtils.lerp(colorSettings.lightness, 0.78, countModeMix * 0.86)
+    colorSettings.lightness = MathUtils.lerp(colorSettings.lightness, 0.78, countdownModeMix * 0.86)
+    colorSettings.lightness = MathUtils.lerp(colorSettings.lightness, 0.7, countdownBurstMix * 0.9)
 
     const handStrength = current.handDetected ? 1 : 0.25
     const stableAnchor = {
@@ -557,7 +650,7 @@ function ParticleField({ controllerState }: ParticleSceneProps) {
         mixes.fist * 0.62 +
         mixes.victory * 0.58 +
         mixes.heart * 0.28) *
-      (1 - countModeMix * 0.5)
+      (1 - numberModeMix * 0.5)
     const anchorX =
       stableAnchor.x *
       handStrength *
@@ -582,6 +675,8 @@ function ParticleField({ controllerState }: ParticleSceneProps) {
       current.attraction * 0.031 +
       mixes.fist * 0.014 +
       countModeMix * 0.024 +
+      countdownModeMix * 0.024 +
+      (numberInputActive ? 0.055 : 0) +
       current.rigidity * 0.018 +
       gestureStability * 0.012 +
       fistLock * 0.08
@@ -589,15 +684,17 @@ function ParticleField({ controllerState }: ParticleSceneProps) {
       0.074 +
         current.rigidity * 0.058 +
         countModeMix * 0.038 +
+        countdownModeMix * 0.038 +
+        (numberInputActive ? 0.075 : 0) +
         fistModeMix * 0.042 -
         current.energy * 0.01 +
         fistLock * 0.06,
       0.06,
-      0.28,
+      0.34,
     )
     const turbulence =
       (current.noiseStrength * 0.0038 + current.velocity * 0.0026) *
-      (1 - countModeMix * 0.94) *
+      (1 - numberModeMix * 0.94) *
       (1 - current.rigidity * 0.72) *
       signatureTurbulence *
       (1 - fistLock * 0.96)
@@ -678,9 +775,9 @@ function ParticleField({ controllerState }: ParticleSceneProps) {
       )
     }
 
-    const gravityPull = mixes.fist * 0.026 * flowModeMix * (1 - countModeMix)
+    const gravityPull = mixes.fist * 0.026 * flowModeMix * (1 - numberModeMix)
     const ambientFlowStrength =
-      !current.handDetected && controllerState.mode === 'flow' ? 0.0038 * (1 - countModeMix) : 0
+      !current.handDetected && controllerState.mode === 'flow' ? 0.0038 * (1 - numberModeMix) : 0
     const fistSpinY = time * 0.28 * fistModeMix
     const fistTiltX = Math.sin(time * 0.26) * 0.16 * fistModeMix
     for (let index = 0; index < drawCount; index += 1) {
@@ -739,9 +836,21 @@ function ParticleField({ controllerState }: ParticleSceneProps) {
       const countTargetX = countField[p] * current.spread * 0.84 + anchorX * 0.32
       const countTargetY = countField[p + 1] * current.spread * 0.84 + anchorY * 0.32
       const countTargetZ = countField[p + 2] * current.spread * 0.84
-      const resolvedTargetX = MathUtils.lerp(targetX, countTargetX, countModeMix)
-      const resolvedTargetY = MathUtils.lerp(targetY, countTargetY, countModeMix)
-      const resolvedTargetZ = MathUtils.lerp(targetZ, countTargetZ, countModeMix)
+      const countdownTargetX = countdownField[p] * current.spread * 0.84 + anchorX * 0.32
+      const countdownTargetY = countdownField[p + 1] * current.spread * 0.84 + anchorY * 0.32
+      const countdownTargetZ = countdownField[p + 2] * current.spread * 0.84
+      const countResolvedTargetX = MathUtils.lerp(targetX, countTargetX, countModeMix)
+      const countResolvedTargetY = MathUtils.lerp(targetY, countTargetY, countModeMix)
+      const countResolvedTargetZ = MathUtils.lerp(targetZ, countTargetZ, countModeMix)
+      const countdownResolvedTargetX = MathUtils.lerp(countResolvedTargetX, countdownTargetX, countdownNumberMix)
+      const countdownResolvedTargetY = MathUtils.lerp(countResolvedTargetY, countdownTargetY, countdownNumberMix)
+      const countdownResolvedTargetZ = MathUtils.lerp(countResolvedTargetZ, countdownTargetZ, countdownNumberMix)
+      const burstTargetX = countdownBurstField[p] * current.spread
+      const burstTargetY = countdownBurstField[p + 1] * current.spread * 0.94
+      const burstTargetZ = countdownBurstField[p + 2] * current.spread
+      const resolvedTargetX = MathUtils.lerp(countdownResolvedTargetX, burstTargetX, countdownBurstMix)
+      const resolvedTargetY = MathUtils.lerp(countdownResolvedTargetY, burstTargetY, countdownBurstMix)
+      const resolvedTargetZ = MathUtils.lerp(countdownResolvedTargetZ, burstTargetZ, countdownBurstMix)
 
       velocities[p] += (resolvedTargetX - positionArray[p]) * springStrength + wobbleX
       velocities[p + 1] += (resolvedTargetY - positionArray[p + 1]) * springStrength + wobbleY
@@ -763,6 +872,22 @@ function ParticleField({ controllerState }: ParticleSceneProps) {
         1 / (1 + radialDistance * radialDistance * (3.6 + current.compression * 4.6))
       const radialX = deltaX / radialDistance
       const radialY = deltaY / radialDistance
+      const countdownBurstOutward =
+        countdownBurstMix *
+        (0.01 + current.energy * 0.012 + current.eventPulse * 0.014) *
+        (0.6 + (1 - radialInfluence) * 0.9)
+      const burstTangential =
+        countdownBurstMix *
+        (0.0024 + current.swirl * 0.0048) *
+        (0.36 + radialInfluence * 0.64)
+      const burstLift =
+        countdownBurstMix *
+        (0.0018 + current.bloom * 0.0056) *
+        (0.42 + (1 - radialInfluence) * 0.72)
+      const burstTwinkle = Math.pow(
+        Math.max(0, Math.sin(time * 9.4 + phase * 3.6 + theta * 1.8)),
+        6,
+      ) * countdownBurstMix
 
       velocities[p] += radialX * bloomStrength * radialInfluence
       velocities[p + 1] += radialY * bloomStrength * radialInfluence
@@ -774,6 +899,13 @@ function ParticleField({ controllerState }: ParticleSceneProps) {
       velocities[p] += stableDrift.x * driftStrength * (0.7 + radialInfluence * 1.2)
       velocities[p + 1] += stableDrift.y * driftStrength * (0.7 + radialInfluence * 1.2)
       velocities[p + 2] += (current.swirl * 0.0018 + current.energy * 0.0022) * radialInfluence
+      velocities[p] += radialX * countdownBurstOutward
+      velocities[p + 1] += radialY * countdownBurstOutward
+      velocities[p + 2] += countdownBurstOutward * 0.9
+      velocities[p] += -radialY * burstTangential
+      velocities[p + 1] += radialX * burstTangential
+      velocities[p + 1] += burstLift
+      velocities[p + 2] += burstTwinkle * 0.016
       const travelDirection = Math.sign(forwardTravel || travelDelta || 0)
       const tunnelStrength =
         (Math.abs(forwardTravel) * 0.03 + travelBurst * 0.018) *
@@ -834,24 +966,50 @@ function ParticleField({ controllerState }: ParticleSceneProps) {
           current.hueShift +
           Math.sin(phase + time * (0.18 + current.energy * 0.08)) *
             ((0.007 + current.swirl * 0.01 * signatureVortex) * (1 - current.rigidity * 0.78) +
-              countRigidityMix * 0.003) +
+              numberRigidityMix * 0.003) +
           radialInfluence * current.bloom * 0.02 * signatureBloom +
           (index / drawCount) * colorSettings.hueRange) %
         1
+      const burstBand = Math.floor(pseudoNoise(index + 4201) * 5)
+      const burstHueBase =
+        burstBand === 0
+          ? 0.11
+          : burstBand === 1
+            ? 0.08
+            : burstBand === 2
+              ? 0.14
+              : burstBand === 3
+                ? 0.58
+                : 0.12
+      const burstHue =
+        (burstHueBase +
+          Math.sin(time * (0.6 + burstBand * 0.08) + phase * 2.4) * 0.028 +
+          radialInfluence * 0.04) % 1
+      const resolvedHue = MathUtils.lerp(hue, burstHue, countdownBurstMix * 0.82)
 
       const lightness =
         colorSettings.lightness +
         current.brightness * 0.14 +
         Math.sin(phase + time * (0.9 + current.energy * 0.6)) *
           ((0.018 + gestureEventRef.current * 0.012) * (1 - current.rigidity * 0.76) +
-            countRigidityMix * 0.01) +
+            numberRigidityMix * 0.01) +
         shockwaveRef.current * radialInfluence * 0.06 +
         scale * 0.012
+      const burstLightness =
+        lightness +
+        burstTwinkle * 0.22 +
+        countdownBurstMix * 0.06 +
+        (1 - radialInfluence) * countdownBurstMix * 0.08
+      const resolvedSaturation = MathUtils.lerp(
+        colorSettings.saturation,
+        0.52,
+        countdownBurstMix * (0.56 + burstTwinkle * 0.18),
+      )
 
       mainColor.setHSL(
-        hue,
-        colorSettings.saturation,
-        MathUtils.clamp(lightness, 0.26, 0.88),
+        resolvedHue,
+        resolvedSaturation,
+        MathUtils.clamp(burstLightness, 0.26, 0.96),
       )
       colorArray[p] = mainColor.r
       colorArray[p + 1] = mainColor.g
@@ -866,6 +1024,8 @@ function ParticleField({ controllerState }: ParticleSceneProps) {
       0.0235 +
       flowModeMix * 0.0032 -
       countModeMix * 0.0018 -
+      countdownModeMix * 0.0018 -
+      countdownBurstMix * 0.0024 -
       fistModeMix * 0.0012
     material.uniforms.uPointSize.value = Math.max(
       9,
@@ -875,6 +1035,12 @@ function ParticleField({ controllerState }: ParticleSceneProps) {
       material.uniforms.uPulse.value as number,
       fistInputActive
         ? 0.12 + current.velocity * 0.1 + mixes.fist * 0.03
+        : controllerState.countdownBurst
+          ? 0.42 +
+            current.brightness * 0.1 +
+            current.energy * 0.16 +
+            current.eventPulse * 0.12 +
+            countdownBurstMix * 0.12
         : current.velocity * 0.42 +
           current.brightness * 0.12 +
           current.energy * 0.2 +
@@ -887,7 +1053,7 @@ function ParticleField({ controllerState }: ParticleSceneProps) {
     )
     material.uniforms.uSquareMix.value = MathUtils.damp(
       material.uniforms.uSquareMix.value as number,
-      0.16 + fistModeMix * 0.92 + countModeMix * 0.08,
+      MathUtils.clamp(0.16 + fistModeMix * 0.92 + countModeMix * 0.08 + countdownModeMix * 0.08 - countdownBurstMix * 0.12, 0.04, 1),
       fistInputActive ? 10.5 : 6.6,
       delta,
     )
@@ -895,14 +1061,33 @@ function ParticleField({ controllerState }: ParticleSceneProps) {
     const badgeDrawCount = badgeCount * BADGE_PARTICLES_PER_CLUSTER
     const badgeLayout = badgeLayouts[badgeCount] ?? []
     const countFieldScale = current.spread * 0.84
+    const countdownFieldScale = current.spread * 0.84
     const countAnchorX = anchorX * 0.32
+    const countdownAnchorX = anchorX * 0.32
     const countAnchorY = anchorY * 0.32
-    const badgeBaseY = countBounds.maxY * countFieldScale + BADGE_GROUP_GAP + countAnchorY
-    const badgeSpring = 0.086 + countModeMix * 0.028 + current.rigidity * 0.02
+    const countdownAnchorY = anchorY * 0.32
+    const countBadgeBaseY = countBounds.maxY * countFieldScale + BADGE_GROUP_GAP + countAnchorY
+    const countdownBadgeBaseY =
+      countdownBounds.maxY * countdownFieldScale + BADGE_GROUP_GAP + countdownAnchorY
+    const badgeBaseY = countModeActive
+      ? countBadgeBaseY
+      : countdownModeActive
+        ? countdownBadgeBaseY
+        : countBadgeBaseY
+    const badgeSpring =
+      0.086 +
+      countModeMix * 0.028 +
+      countdownModeMix * 0.028 +
+      (numberInputActive ? 0.07 : 0) +
+      current.rigidity * 0.02
     const badgeVelocityDamping = MathUtils.clamp(
-      0.11 + current.rigidity * 0.03 + countModeMix * 0.02,
+      0.11 +
+        current.rigidity * 0.03 +
+        countModeMix * 0.02 +
+        countdownModeMix * 0.02 +
+        (numberInputActive ? 0.07 : 0),
       0.1,
-      0.2,
+      0.28,
     )
 
     for (let badgeIndex = 0; badgeIndex < badgeCount; badgeIndex += 1) {
@@ -913,8 +1098,12 @@ function ParticleField({ controllerState }: ParticleSceneProps) {
         const globalIndex = badgeIndex * BADGE_PARTICLES_PER_CLUSTER + localIndex
         const p = globalIndex * 3
         const templateOffset = localIndex * 3
-        const gatherScatter = (1 - badgeReveal) * (0.34 + badgeIndex * 0.015)
-        const idleFloat = 0.006 + (1 - badgeReveal) * 0.014
+        const gatherScatter = numberInputActive
+          ? (1 - badgeReveal) * (0.12 + badgeIndex * 0.008)
+          : (1 - badgeReveal) * (0.34 + badgeIndex * 0.015)
+        const idleFloat = numberInputActive
+          ? 0.0018 + (1 - badgeReveal) * 0.006
+          : 0.006 + (1 - badgeReveal) * 0.014
         const floatX =
           Math.sin(time * (0.88 + pseudoNoise(globalIndex + 1901) * 0.54) + globalIndex * 0.11) *
           idleFloat
@@ -929,7 +1118,12 @@ function ParticleField({ controllerState }: ParticleSceneProps) {
         const gatherY = (pseudoNoise(globalIndex + 2111) - 0.5) * gatherScatter
         const gatherZ = (pseudoNoise(globalIndex + 2161) - 0.5) * gatherScatter * 0.32
 
-        const targetX = badgeTemplate[templateOffset] + anchor.x + countAnchorX + gatherX + floatX
+        const badgeAnchorX = countModeActive
+          ? countAnchorX
+          : countdownModeActive
+            ? countdownAnchorX
+            : countAnchorX
+        const targetX = badgeTemplate[templateOffset] + anchor.x + badgeAnchorX + gatherX + floatX
         const targetY =
           badgeTemplate[templateOffset + 1] + anchor.y + badgeBaseY + gatherY + floatY
         const targetZ = badgeTemplate[templateOffset + 2] + gatherZ + floatZ
@@ -977,8 +1171,8 @@ function ParticleField({ controllerState }: ParticleSceneProps) {
     )
     badgeMaterial.uniforms.uOpacity.value = MathUtils.damp(
       badgeMaterial.uniforms.uOpacity.value as number,
-      controllerState.mode === 'count' && badgeCount > 0 ? 0.94 : 0,
-      5.2,
+      countModeActive ? (badgeCount > 0 ? 0.94 : 0) : countdownModeActive ? (badgeCount > 0 ? 0.94 : 0) : 0,
+      numberInputActive ? 8.4 : 5.2,
       delta,
     )
 
@@ -1052,13 +1246,13 @@ function SceneEffects() {
   return (
     <EffectComposer multisampling={0}>
       <Bloom
-        intensity={1.15}
+        intensity={1.02}
         luminanceThreshold={0.14}
-        luminanceSmoothing={0.34}
+        luminanceSmoothing={0.3}
         mipmapBlur
       />
-      <Noise opacity={0.007} blendFunction={BlendFunction.SCREEN} />
-      <Vignette eskil={false} offset={0.18} darkness={0.72} />
+      <Noise opacity={0.006} blendFunction={BlendFunction.SCREEN} />
+      <Vignette eskil={false} offset={0.16} darkness={0.68} />
     </EffectComposer>
   )
 }

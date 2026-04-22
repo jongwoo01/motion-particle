@@ -17,7 +17,7 @@ export type CameraPermissionState =
 export type CameraStreamState = 'inactive' | 'live' | 'muted' | 'ended'
 
 export type GestureType = 'open_palm' | 'fist' | 'victory' | 'heart' | 'none'
-export type InteractionMode = 'flow' | 'count'
+export type InteractionMode = 'flow' | 'count' | 'countdown'
 
 export interface LandmarkPoint {
   x: number
@@ -76,6 +76,7 @@ export interface ParticleControllerState extends ParticlePreset {
   mode: InteractionMode
   countValue: number
   badgeCount: number
+  countdownBurst: boolean
   rigidity: number
   energy: number
   swirl: number

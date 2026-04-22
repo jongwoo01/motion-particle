@@ -78,6 +78,116 @@ describe('particle presets', () => {
     expect(controller.travel).toBe(0)
   })
 
+  it('keeps countdown mode identical to count mode within the 0-5 range', () => {
+    const countController = resolveParticleControllerState({
+      gesture: 'none',
+      handDetected: true,
+      mode: 'count',
+      countValue: 5,
+      hardwareConcurrency: 12,
+      metrics: {
+        anchor: { x: 0.1, y: -0.12 },
+        velocity: 0.4,
+        openness: 0.9,
+        spread: 0.8,
+        pinch: 0.12,
+        rotation: 0.24,
+        horizontal: 0.16,
+        vertical: 0.09,
+        depth: 0.4,
+      },
+    })
+    const countdownController = resolveParticleControllerState({
+      gesture: 'none',
+      handDetected: true,
+      mode: 'countdown',
+      countValue: 5,
+      hardwareConcurrency: 12,
+      metrics: {
+        anchor: { x: 0.1, y: -0.12 },
+        velocity: 0.4,
+        openness: 0.9,
+        spread: 0.8,
+        pinch: 0.12,
+        rotation: 0.24,
+        horizontal: 0.16,
+        vertical: 0.09,
+        depth: 0.4,
+      },
+    })
+
+    expect(countdownController.mode).toBe('countdown')
+    expect(countdownController.countValue).toBe(5)
+    expect(countdownController.badgeCount).toBe(5)
+    expect(countdownController.attraction).toBeGreaterThan(1)
+    expect(countdownController.noiseStrength).toBeLessThan(0.08)
+    expect(countdownController.swirl).toBe(0)
+    expect(countdownController.eventPulse).toBe(0)
+    expect(countdownController.rigidity).toBeGreaterThan(0.8)
+    expect(countdownController.travel).toBe(0)
+    expect({
+      ...countdownController,
+      mode: 'count',
+      countdownBurst: false,
+    }).toEqual(countController)
+  })
+
+  it('caps countdown mode to 5 even if more fingers are detected', () => {
+    const controller = resolveParticleControllerState({
+      gesture: 'open_palm',
+      handDetected: true,
+      mode: 'countdown',
+      countValue: 9,
+      hardwareConcurrency: 12,
+      metrics: {
+        anchor: { x: 0.1, y: -0.12 },
+        velocity: 0.4,
+        openness: 0.9,
+        spread: 0.8,
+        pinch: 0.12,
+        rotation: 0.24,
+        horizontal: 0.16,
+        vertical: 0.09,
+        depth: 0.4,
+      },
+    })
+
+    expect(controller.mode).toBe('countdown')
+    expect(controller.countValue).toBe(5)
+    expect(controller.badgeCount).toBe(5)
+    expect(controller.countdownBurst).toBe(false)
+  })
+
+  it('switches countdown mode into burst state for two-hand open detection', () => {
+    const controller = resolveParticleControllerState({
+      gesture: 'open_palm',
+      handDetected: true,
+      mode: 'countdown',
+      countValue: 10,
+      countdownBurst: true,
+      hardwareConcurrency: 12,
+      metrics: {
+        anchor: { x: 0.1, y: -0.12 },
+        velocity: 0.72,
+        openness: 1,
+        spread: 0.96,
+        pinch: 0,
+        rotation: 0.18,
+        horizontal: 0.1,
+        vertical: -0.08,
+        depth: 0.36,
+      },
+    })
+
+    expect(controller.mode).toBe('countdown')
+    expect(controller.countValue).toBe(5)
+    expect(controller.badgeCount).toBe(0)
+    expect(controller.countdownBurst).toBe(true)
+    expect(controller.bloom).toBe(1)
+    expect(controller.eventPulse).toBe(1)
+    expect(controller.energy).toBe(1)
+  })
+
   it('locks fist flow closer to a stable cube than a drifting cloud', () => {
     const controller = resolveParticleControllerState({
       gesture: 'fist',

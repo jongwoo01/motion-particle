@@ -97,6 +97,8 @@ interface StatusHudProps {
   debugState: string
   mode: InteractionMode
   fingerCount: number
+  countValue: number
+  countdownBurst: boolean
   energy: number
   swirl: number
 }
@@ -124,12 +126,32 @@ export function StatusHud(props: StatusHudProps) {
           <strong>{props.rawDetectionCount}</strong>
         </div>
         <div className="status-hud__item">
-          <span className="status-hud__label">{props.mode === 'count' ? 'Count' : 'Field'}</span>
-          <strong>{props.mode === 'count' ? props.fingerCount : toFieldLabel(props.energy, props.swirl)}</strong>
+          <span className="status-hud__label">
+            {props.mode === 'count'
+              ? 'Count'
+              : props.mode === 'countdown'
+                ? 'Countdown'
+                : 'Field'}
+          </span>
+          <strong>
+            {props.mode === 'count'
+              ? props.fingerCount
+              : props.mode === 'countdown'
+                ? props.countdownBurst
+                  ? 'Burst'
+                  : props.countValue
+                : toFieldLabel(props.energy, props.swirl)}
+          </strong>
         </div>
       </div>
       <p className="status-hud__meta">
-        {props.mode === 'count' ? 'Count mode' : `Flow mode · intensity ${intensity}`} · {props.modelReady ? 'Model loaded' : 'Model loading'} · {toTrackingLabel(props.trackingState)} · {toPermissionLabel(props.permissionState)} · {toStreamLabel(props.streamState)} · {props.videoResolution.width}×{props.videoResolution.height}
+        {props.mode === 'count'
+          ? 'Count mode'
+          : props.mode === 'countdown'
+            ? props.countdownBurst
+              ? 'Countdown mode · burst'
+              : 'Countdown mode · 0-5'
+            : `Flow mode · intensity ${intensity}`} · {props.modelReady ? 'Model loaded' : 'Model loading'} · {toTrackingLabel(props.trackingState)} · {toPermissionLabel(props.permissionState)} · {toStreamLabel(props.streamState)} · {props.videoResolution.width}×{props.videoResolution.height}
       </p>
     </section>
   )

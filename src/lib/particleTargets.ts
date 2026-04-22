@@ -213,6 +213,57 @@ export function createNumberTargetFieldSet(count: number): NumberTargetFieldSet 
   return { fields, bounds }
 }
 
+export function createCountdownBurstTargetField(count: number) {
+  const field = new Float32Array(count * 3)
+
+  for (let index = 0; index < count; index += 1) {
+    const offset = index * 3
+    const shellType = Math.floor(pseudoNoise(index + 2701) * 4)
+    const shell = pseudoNoise(index + 2801)
+    const angle = pseudoNoise(index + 2903) * Math.PI * 2
+    const elevation = (pseudoNoise(index + 3001) - 0.5) * Math.PI * 1.08
+    const flare = Math.pow(pseudoNoise(index + 3203), 0.62)
+    const comet = Math.pow(pseudoNoise(index + 3301), 1.8)
+    const ringWave = Math.sin(angle * (5 + Math.floor(pseudoNoise(index + 3401) * 5)) + index * 0.02) * 0.18
+    const ribbonWave = Math.sin(angle * 2.4 + index * 0.016) * 0.42
+
+    let radius = 1
+    let lift = 0
+    let x = 0
+    let y = 0
+    let z = 0
+
+    if (shellType === 0) {
+      radius = 1 + shell * 2.2 + ringWave + flare * 0.8
+      x = Math.cos(angle) * Math.cos(elevation) * radius * 1.64
+      y = Math.sin(elevation) * radius * 1.2 + ribbonWave * 0.12
+      z = Math.sin(angle) * Math.cos(elevation) * radius * 1.52
+    } else if (shellType === 1) {
+      radius = 0.86 + shell * 1.7 + flare * 0.9
+      lift = 0.54 + comet * 1.4
+      x = Math.cos(angle) * Math.cos(elevation) * radius * 1.34
+      y = Math.sin(elevation) * radius * 0.8 + lift
+      z = Math.sin(angle) * Math.cos(elevation) * radius * 1.3
+    } else if (shellType === 2) {
+      radius = 1.6 + shell * 1.18 + ringWave * 0.6
+      x = Math.cos(angle) * radius * 1.78
+      y = Math.sin(angle * 2.8 + index * 0.013) * 0.32 + (shell - 0.5) * 0.36
+      z = Math.sin(angle) * radius * 1.58
+    } else {
+      radius = 0.92 + shell * 2 + flare * 0.74
+      x = Math.cos(angle) * Math.cos(elevation) * radius * (1.22 + ribbonWave * 0.08)
+      y = Math.sin(elevation * 1.2) * radius * 1.42 + ribbonWave * 0.28
+      z = Math.sin(angle) * Math.cos(elevation) * radius * (1.1 + ribbonWave * 0.06)
+    }
+
+    field[offset] = x
+    field[offset + 1] = y
+    field[offset + 2] = z
+  }
+
+  return field
+}
+
 export function createTargetFields(count: number): ParticleTargetFields {
   const neutral = new Float32Array(count * 3)
   const openPalm = new Float32Array(count * 3)

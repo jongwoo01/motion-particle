@@ -90,6 +90,45 @@ export function createParticlePreset(
   }
 }
 
+function createCountParticlePreset(lowPowerMode: boolean): ParticlePreset {
+  return {
+    count: lowPowerMode ? 16000 : 30000,
+    size: 0.086,
+    velocity: 0.28,
+    spread: 0.84,
+    attraction: 1.34,
+    hueShift: 0.12,
+    noiseStrength: 0.02,
+    brightness: 0.78,
+  }
+}
+
+function createCountdownParticlePreset(lowPowerMode: boolean): ParticlePreset {
+  return {
+    count: lowPowerMode ? 16000 : 30000,
+    size: 0.086,
+    velocity: 0.28,
+    spread: 0.84,
+    attraction: 1.34,
+    hueShift: 0.12,
+    noiseStrength: 0.02,
+    brightness: 0.78,
+  }
+}
+
+function createCountdownBurstParticlePreset(lowPowerMode: boolean): ParticlePreset {
+  return {
+    count: lowPowerMode ? 22000 : 38000,
+    size: 0.094,
+    velocity: 1.04,
+    spread: 1.92,
+    attraction: 0.24,
+    hueShift: 0.18,
+    noiseStrength: 0.34,
+    brightness: 1.06,
+  }
+}
+
 export function resolveParticleControllerState(input: {
   gesture: GestureType
   handDetected: boolean
@@ -97,24 +136,23 @@ export function resolveParticleControllerState(input: {
   hardwareConcurrency?: number
   mode?: InteractionMode
   countValue?: number
+  countdownBurst?: boolean
 }): ParticleControllerState {
   const lowPowerMode = (input.hardwareConcurrency ?? 4) <= 6
   const resolvedMode = input.mode ?? 'flow'
-  const resolvedCountValue = clamp(Math.round(input.countValue ?? 0), 0, 10)
+  const isCountMode = resolvedMode === 'count'
+  const isCountdownMode = resolvedMode === 'countdown'
+  const isCountdownBurst = isCountdownMode && Boolean(input.countdownBurst)
+  const resolvedCountValue = clamp(Math.round(input.countValue ?? 0), 0, isCountdownMode ? 5 : 10)
   const isFistFlow = resolvedMode === 'flow' && input.handDetected && input.gesture === 'fist'
   const basePreset =
-    resolvedMode === 'count'
-      ? {
-          count: lowPowerMode ? 16000 : 30000,
-          size: 0.086,
-          velocity: 0.28,
-          spread: 0.84,
-          attraction: 1.34,
-          hueShift: 0.12,
-          noiseStrength: 0.02,
-          brightness: 0.78,
-        }
-      : createParticlePreset(input.handDetected ? input.gesture : 'none', lowPowerMode)
+    isCountMode
+      ? createCountParticlePreset(lowPowerMode)
+      : isCountdownBurst
+        ? createCountdownBurstParticlePreset(lowPowerMode)
+      : isCountdownMode
+        ? createCountdownParticlePreset(lowPowerMode)
+        : createParticlePreset(input.handDetected ? input.gesture : 'none', lowPowerMode)
 
   const motionBoost = input.handDetected
     ? clamp(
@@ -165,7 +203,7 @@ export function resolveParticleControllerState(input: {
       )
     : 0
   const travel =
-    resolvedMode === 'count' ? 0 : isFistFlow ? travelBase * 0.04 : travelBase
+    isCountMode ? 0 : isCountdownMode ? 0 : isFistFlow ? travelBase * 0.04 : travelBase
   const energy = input.handDetected
     ? clamp(
         input.metrics.velocity * 0.42 +
@@ -220,11 +258,15 @@ export function resolveParticleControllerState(input: {
     : 0
   const eventPulse = isFistFlow ? eventPulseBase * 0.14 : eventPulseBase
   const rigidity = !input.handDetected
-    ? resolvedMode === 'count'
+    ? isCountMode
       ? 0.78
+      : isCountdownMode
+        ? 0.78
       : 0.22
-    : resolvedMode === 'count'
+    : isCountMode
       ? 0.86
+      : isCountdownMode
+        ? 0.86
       : clamp(
           0.22 +
             (input.gesture === 'fist' ? 0.82 : 0) +
@@ -239,36 +281,44 @@ export function resolveParticleControllerState(input: {
   return {
     ...basePreset,
     count: Math.round(
-      basePreset.count * (1 + resolvedMotionBoost * (resolvedMode === 'count' ? 0.1 : isFistFlow ? 0.04 : 0.26)),
+      basePreset.count *
+        (1 +
+          resolvedMotionBoost *
+            (isCountMode ? 0.1 : isCountdownMode ? 0.1 : isFistFlow ? 0.04 : 0.26)),
     ),
-    size: basePreset.size + resolvedSpreadBoost * (resolvedMode === 'count' ? 0.003 : isFistFlow ? 0.002 : 0.01),
+    size:
+      basePreset.size +
+      resolvedSpreadBoost * (isCountMode ? 0.003 : isCountdownMode ? 0.003 : isFistFlow ? 0.002 : 0.01),
     velocity:
-      basePreset.velocity + resolvedMotionBoost * (resolvedMode === 'count' ? 0.08 : isFistFlow ? 0.03 : 0.24),
+      basePreset.velocity +
+      resolvedMotionBoost * (isCountMode ? 0.08 : isCountdownMode ? 0.08 : isFistFlow ? 0.03 : 0.24),
     spread:
       basePreset.spread +
-      resolvedSpreadBoost * (resolvedMode === 'count' ? 0.16 : isFistFlow ? 0.08 : 0.76),
+      resolvedSpreadBoost * (isCountMode ? 0.16 : isCountdownMode ? 0.16 : isFistFlow ? 0.08 : 0.76),
     noiseStrength:
       isFistFlow
         ? Math.min(0.03, basePreset.noiseStrength + resolvedMotionBoost * 0.01)
-        : basePreset.noiseStrength + resolvedMotionBoost * (resolvedMode === 'count' ? 0.02 : 0.14),
+        : basePreset.noiseStrength + resolvedMotionBoost * (isCountMode ? 0.02 : isCountdownMode ? 0.02 : 0.14),
     brightness:
       isFistFlow
         ? basePreset.brightness + resolvedMotionBoost * 0.03
-        : basePreset.brightness + resolvedMotionBoost * (resolvedMode === 'count' ? 0.05 : 0.16),
+        : basePreset.brightness + resolvedMotionBoost * (isCountMode ? 0.05 : isCountdownMode ? 0.05 : 0.16),
     gesture: input.handDetected ? input.gesture : 'none',
     handDetected: input.handDetected,
     anchor: input.handDetected ? input.metrics.anchor : { x: 0, y: 0 },
     travel,
     mode: resolvedMode,
     countValue: resolvedCountValue,
-    badgeCount: resolvedMode === 'count' ? resolvedCountValue : 0,
+    badgeCount: isCountMode ? resolvedCountValue : isCountdownMode ? (isCountdownBurst ? 0 : resolvedCountValue) : 0,
+    countdownBurst: isCountdownBurst,
     rigidity,
-    energy: resolvedEnergy,
-    swirl: resolvedMode === 'count' ? 0 : isFistFlow ? Math.min(swirl, 0.02) : swirl,
-    bloom: resolvedMode === 'count' ? 0 : bloom,
-    compression: resolvedMode === 'count' ? 0 : isFistFlow ? Math.max(compression, 0.78) : compression,
-    drift: resolvedMode === 'count' ? { x: 0, y: 0 } : resolvedDrift,
-    pinch: resolvedMode === 'count' ? 0 : input.metrics.pinch,
-    eventPulse: resolvedMode === 'count' ? 0 : eventPulse,
+    energy: isCountdownBurst ? 1 : resolvedEnergy,
+    swirl: isCountMode ? 0 : isCountdownBurst ? 0.36 : isCountdownMode ? 0 : isFistFlow ? Math.min(swirl, 0.02) : swirl,
+    bloom: isCountMode ? 0 : isCountdownBurst ? 1 : isCountdownMode ? 0 : bloom,
+    compression:
+      isCountMode ? 0 : isCountdownBurst ? 0 : isCountdownMode ? 0 : isFistFlow ? Math.max(compression, 0.78) : compression,
+    drift: isCountMode ? { x: 0, y: 0 } : isCountdownMode ? { x: 0, y: 0 } : resolvedDrift,
+    pinch: isCountMode ? 0 : isCountdownMode ? 0 : input.metrics.pinch,
+    eventPulse: isCountMode ? 0 : isCountdownBurst ? 1 : isCountdownMode ? 0 : eventPulse,
   }
 }

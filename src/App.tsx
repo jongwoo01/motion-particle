@@ -11,6 +11,10 @@ function App() {
   const videoRef = useRef<HTMLVideoElement>(null)
   const tracking = useHandTracking(videoRef)
   const [mode, setMode] = useState<InteractionMode>('flow')
+  const countdownBurst =
+    tracking.hands.length >= 2 &&
+    tracking.gesture === 'open_palm' &&
+    tracking.fingerCount >= 8
 
   const controllerState = useMemo(
     () =>
@@ -20,10 +24,11 @@ function App() {
         metrics: tracking.motionMetrics,
         mode,
         countValue: tracking.fingerCount,
+        countdownBurst,
         hardwareConcurrency:
           typeof navigator === 'undefined' ? 4 : navigator.hardwareConcurrency,
       }),
-    [mode, tracking.fingerCount, tracking.gesture, tracking.handDetected, tracking.motionMetrics],
+    [countdownBurst, mode, tracking.fingerCount, tracking.gesture, tracking.handDetected, tracking.motionMetrics],
   )
 
   const overlayCopy = useMemo(() => {
@@ -106,6 +111,10 @@ function App() {
           <p className="title-lockup__body">
             {mode === 'count'
               ? `지금 이 우주의 밀도는 ${tracking.fingerCount}입니다.`
+              : mode === 'countdown'
+                ? controllerState.countdownBurst
+                  ? '양손을 활짝 펴 폭죽처럼 번지는 장면을 만들고 있습니다.'
+                  : `지금 카운트다운은 ${controllerState.countValue}입니다.`
               : '오직 당신 손으로 공간을 제어해보세요.'}
           </p>
         </header>
@@ -127,6 +136,8 @@ function App() {
             debugState={tracking.debugState}
             mode={mode}
             fingerCount={tracking.fingerCount}
+            countValue={controllerState.countValue}
+            countdownBurst={controllerState.countdownBurst}
             energy={controllerState.energy}
             swirl={controllerState.swirl}
           />
@@ -147,11 +158,27 @@ function App() {
               >
                 카운트
               </button>
+              <button
+                type="button"
+                className={mode === 'countdown' ? 'mode-switch__button is-active' : 'mode-switch__button'}
+                onClick={() => setMode('countdown')}
+              >
+                카운트다운
+              </button>
             </div>
 
             <section className="gesture-legend" aria-label="제스처 안내">
               {mode === 'count' ? (
                 <span><strong>현재 숫자</strong> {tracking.fingerCount}</span>
+              ) : mode === 'countdown' ? (
+                controllerState.countdownBurst ? (
+                  <span><strong>양손 펼침</strong> 폭죽처럼 확장</span>
+                ) : (
+                  <>
+                    <span><strong>한 손</strong> 0부터 5까지만 카운트</span>
+                    <span><strong>양손 펼침</strong> 숫자 대신 폭죽</span>
+                  </>
+                )
               ) : (
                 <>
                   <span><strong>천천히 회전</strong> 와류</span>
